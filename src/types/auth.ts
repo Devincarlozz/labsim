@@ -18,6 +18,8 @@ export interface UserPresence {
   lastSeen: number;
   activeProject?: ActiveProjectSummary;
   browserInfo?: string;
+  authProvider?: 'google' | 'email' | 'system';
+  createdAt?: number;
 }
 
 export interface AuthUser {
