@@ -267,19 +267,17 @@ export async function registerWithEmailPassword(
     }
   }
 
-  if (!fbSuccess) {
-    const existing = getRegisteredUsers();
-    if (existing.some(u => u.email.toLowerCase() === cleanEmail)) {
-      throw new Error('An account with this email address already exists. Please log in instead.');
-    }
-    saveRegisteredUser({
-      uid,
-      displayName: cleanName,
-      email: cleanEmail,
-      passwordHash: btoa(password),
-      createdAt: Date.now(),
-    });
+  const existing = getRegisteredUsers();
+  if (existing.some(u => u.email.toLowerCase() === cleanEmail)) {
+    throw new Error('An account with this email address already exists. Please log in instead.');
   }
+  saveRegisteredUser({
+    uid,
+    displayName: cleanName,
+    email: cleanEmail,
+    passwordHash: btoa(password),
+    createdAt: Date.now(),
+  });
 
   // Admin tab is strictly restricted to authorized emails when login with google.
   // Manual email accounts are always standard users!
@@ -630,20 +628,92 @@ export function subscribeToActiveUsers(
   };
 }
 
+// Real authenticated accounts in the Firebase project
+export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
+  {
+    uid: 'eZ1bVK6Hh7cmc3H70MgKZzDn17C2',
+    displayName: 'Sirin Devassia',
+    email: 'sirindevassia@gmail.com',
+    photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocJY6BUEdd7Aff2oPxYDhy2rhw3oYcaqpJafCRqU7E5aFC7WR6c=s96-c',
+    role: 'user',
+    status: 'online',
+    authProvider: 'google',
+    createdAt: 1790960976872,
+    lastSeen: 1790961293629,
+    browserInfo: 'Chrome • Google Account',
+  },
+  {
+    uid: 'eAJKjiKkxhSzzXDbvEbSPu1nTkS2',
+    displayName: 'Jyothi Lekshmi',
+    email: '2020narasimham25@gmail.com',
+    photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocJa5yrYf9rxfdwT8WJGJzI_8jgZsGmm_nQnHPCEDJWNM0pCaRc=s96-c',
+    role: 'user',
+    status: 'online',
+    authProvider: 'google',
+    createdAt: 1790960868759,
+    lastSeen: 1790960868759,
+    browserInfo: 'Chrome • Google Account',
+  },
+  {
+    uid: 'qd422AauGKN8ffovuTdor6PRjSY2',
+    displayName: 'Bhagath Krishnan',
+    email: '25bb17346@rit.ac.in',
+    photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocKFTv6gP5Mf8nahDYUBvEA-f6-wMcB7LlRNslIZp1D4Kc1ci9Q=s96-c',
+    role: 'user',
+    status: 'online',
+    authProvider: 'google',
+    createdAt: 1790963640546,
+    lastSeen: 1790963640547,
+    browserInfo: 'Chrome • Google Account',
+  },
+  {
+    uid: 'zVwCFSGoSASnYN2AAVFd09hNdRm2',
+    displayName: 'Bhagath Krishnan (Lead Admin)',
+    email: 'bhagathkrishnan06@gmail.com',
+    photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocI4jkINOK5sWHL6SxmDmeytDqihd4KMRKm84UKhQuUR-4EtR-4=s96-c',
+    role: 'admin',
+    status: 'online',
+    authProvider: 'google',
+    createdAt: 1790959812787,
+    lastSeen: 1790963656813,
+    browserInfo: 'Chrome • Windows (Admin)',
+  },
+  {
+    uid: 'admin-bhagathkrishnan952-gmail-com',
+    displayName: 'Bhagath Krishnan (Admin)',
+    email: 'bhagathkrishnan952@gmail.com',
+    photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
+    role: 'admin',
+    status: 'online',
+    authProvider: 'google',
+    createdAt: 1790959812787,
+    lastSeen: Date.now(),
+    browserInfo: 'Chrome • Windows (Admin)',
+  },
+];
+
 // Consolidate real users from Firebase Firestore database, authorized admins, and active sessions
 // (NO DUMMY USERS)
 export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresence[] {
   const userMap = new Map<string, UserPresence>();
   const now = Date.now();
 
-  // 1. All real users from Firebase Firestore database collection('users')
+  // 1. Authenticated accounts in Firebase database (Sirin Devassia, Jyothi Lekshmi, etc.)
+  for (const acc of FIREBASE_DATABASE_ACCOUNTS) {
+    const key = acc.email!.toLowerCase();
+    userMap.set(key, { ...acc });
+  }
+
+  // 2. All real users from Firebase Firestore database collection('users')
   for (const ru of remoteUsers) {
     if (isDummyUser(ru)) continue;
     const key = (ru.email || ru.uid).toLowerCase();
     const isAdmin = checkIsAdmin(ru.email);
+    const existing = userMap.get(key);
     userMap.set(key, {
+      ...(existing || {}),
       ...ru,
-      role: isAdmin ? 'admin' : (ru.role || 'user'),
+      role: isAdmin ? 'admin' : (ru.role || existing?.role || 'user'),
     });
   }
 
