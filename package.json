@@ -1,0 +1,32 @@
+{
+  "name": "labsim-temp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "npx --yes vite-node src/simulation/engine/__tests__/runTests.ts",
+    "lint": "oxlint",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "firebase:deploy": "npm run build && firebase deploy",
+    "firebase:config": "firebase apps:sdkconfig WEB"
+  },
+  "dependencies": {
+    "firebase": "^12.19.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.62.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "wrangler": "^4.143.1"
+  }
+}
