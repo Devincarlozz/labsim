@@ -18,6 +18,7 @@ import {
   collection,
   onSnapshot,
   query,
+  getDocs,
   Firestore,
 } from 'firebase/firestore';
 import { AuthUser, UserPresence } from '../types/auth';
@@ -135,6 +136,24 @@ export function saveRegisteredUser(user: LocalRegisteredUser): void {
   list.push(user);
   localStorage.setItem(STORAGE_KEY_REGISTERED_USERS, JSON.stringify(list));
   window.dispatchEvent(new CustomEvent('circuitlab-presence-update'));
+
+  // Sync to Firestore 'users' collection
+  if (db && isConfigured) {
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      setDoc(userRef, {
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        role: checkIsAdmin(user.email) ? 'admin' : 'user',
+        status: 'offline',
+        createdAt: user.createdAt,
+        lastSeen: user.createdAt,
+        authProvider: 'email',
+        browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+      }, { merge: true }).catch(() => {});
+    } catch {}
+  }
 }
 
 // Explicitly authorized admin emails per user requirement:
@@ -176,6 +195,26 @@ export async function loginWithGoogleFirebase(): Promise<AuthUser> {
     };
 
     localStorage.setItem(STORAGE_KEY_SIMULATED_USER, JSON.stringify(authUser));
+
+    // Save to Firestore 'users' collection so it appears on the Admin Panel
+    if (db && isConfigured) {
+      try {
+        await setDoc(doc(db, 'users', u.uid), {
+          uid: u.uid,
+          displayName: authUser.displayName,
+          email: u.email,
+          photoURL: u.photoURL,
+          role: authUser.role,
+          authProvider: 'google',
+          status: 'online',
+          lastSeen: Date.now(),
+          browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Firestore write error on Google login:', e);
+      }
+    }
+
     return authUser;
   } catch (err: any) {
     const code = err?.code || '';
@@ -255,6 +294,27 @@ export async function registerWithEmailPassword(
   };
 
   localStorage.setItem(STORAGE_KEY_SIMULATED_USER, JSON.stringify(authUser));
+
+  // Save to Firestore 'users' collection
+  if (db && isConfigured) {
+    try {
+      await setDoc(doc(db, 'users', uid), {
+        uid,
+        displayName: cleanName,
+        email: cleanEmail,
+        photoURL: photoURL || null,
+        role: 'user',
+        status: 'online',
+        lastSeen: Date.now(),
+        createdAt: Date.now(),
+        authProvider: 'email',
+        browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Firestore write error on email registration:', e);
+    }
+  }
+
   return authUser;
 }
 
@@ -285,6 +345,23 @@ export async function loginWithEmailPassword(
 
   if (fbUser) {
     localStorage.setItem(STORAGE_KEY_SIMULATED_USER, JSON.stringify(fbUser));
+
+    if (db && isConfigured) {
+      try {
+        await setDoc(doc(db, 'users', fbUser.uid), {
+          uid: fbUser.uid,
+          displayName: fbUser.displayName,
+          email: fbUser.email,
+          photoURL: fbUser.photoURL,
+          role: fbUser.role,
+          status: 'online',
+          lastSeen: Date.now(),
+          authProvider: 'email',
+          browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+        }, { merge: true });
+      } catch {}
+    }
+
     return fbUser;
   }
 
@@ -305,6 +382,23 @@ export async function loginWithEmailPassword(
       isAnonymous: false,
     };
     localStorage.setItem(STORAGE_KEY_SIMULATED_USER, JSON.stringify(authUser));
+
+    if (db && isConfigured) {
+      try {
+        await setDoc(doc(db, 'users', authUser.uid), {
+          uid: authUser.uid,
+          displayName: authUser.displayName,
+          email: authUser.email,
+          photoURL: null,
+          role: 'user',
+          status: 'online',
+          lastSeen: Date.now(),
+          authProvider: 'email',
+          browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+        }, { merge: true });
+      } catch {}
+    }
+
     return authUser;
   }
 
@@ -330,7 +424,7 @@ export async function logoutFirebase(): Promise<void> {
 
 // Google Sign-In with Account Selection / Fallback for Local Dev or Popup Restrictions
 export function loginSimulatedGoogle(customEmail?: string): AuthUser {
-  const emailToUse = (customEmail || 'sarah.chen@university.edu').trim().toLowerCase();
+  const emailToUse = (customEmail || 'bhagathkrishnan06@gmail.com').trim().toLowerCase();
   const isAdminCalculated = checkIsAdmin(emailToUse);
 
   const simulated: AuthUser = {
@@ -339,13 +433,31 @@ export function loginSimulatedGoogle(customEmail?: string): AuthUser {
     email: emailToUse,
     photoURL: isAdminCalculated
       ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face'
-      : 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face',
+      : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=face',
     role: isAdminCalculated ? 'admin' : 'user',
     authProvider: 'google',
     isAnonymous: false,
   };
 
   localStorage.setItem(STORAGE_KEY_SIMULATED_USER, JSON.stringify(simulated));
+
+  // Sync to Firestore 'users' collection if connected
+  if (db && isConfigured) {
+    try {
+      setDoc(doc(db, 'users', simulated.uid), {
+        uid: simulated.uid,
+        displayName: simulated.displayName,
+        email: simulated.email,
+        photoURL: simulated.photoURL,
+        role: simulated.role,
+        authProvider: 'google',
+        status: 'online',
+        lastSeen: Date.now(),
+        browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+      }, { merge: true }).catch(() => {});
+    } catch {}
+  }
+
   return simulated;
 }
 
@@ -358,13 +470,47 @@ export function getSimulatedUser(): AuthUser | null {
   }
 }
 
-// Sync user presence and their active project
-export async function syncUserPresence(presence: UserPresence): Promise<void> {
-  // 1. Update in-memory / localStorage cache so all tabs & admin view see it immediately
+// Dummy user check to filter out any lingering seed student profiles
+const DUMMY_EMAILS = new Set([
+  'm.thorne@mit.edu',
+  'elena.rostova@stanford.edu',
+  'david.park@berkeley.edu',
+  'amina.mansoor@oxford.ac.uk',
+  'sarah.chen@university.edu',
+  'alex.rivera@polytech.edu',
+  'priya.sharma@iitd.ac.in',
+  'liam.oconnor@tcd.ie',
+]);
+
+export function isDummyUser(u?: { uid?: string; email?: string | null }): boolean {
+  if (!u) return false;
+  if (u.uid && u.uid.startsWith('user-active-')) return true;
+  if (u.email && DUMMY_EMAILS.has(u.email.toLowerCase())) return true;
+  return false;
+}
+
+// Purge any stale dummy user accounts from localStorage caches
+export function cleanupDummyUsers(): void {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
-    const existing: UserPresence[] = raw ? JSON.parse(raw) : getSeedSampleUsers();
-    const filtered = existing.filter((u) => u.uid !== presence.uid);
+    if (raw) {
+      const stored: UserPresence[] = JSON.parse(raw);
+      const clean = stored.filter((u) => !isDummyUser(u));
+      localStorage.setItem(STORAGE_KEY_LOCAL_USERS, JSON.stringify(clean));
+    }
+  } catch {}
+}
+
+// Sync user presence and their active project
+export async function syncUserPresence(presence: UserPresence): Promise<void> {
+  if (isDummyUser(presence)) return;
+
+  // 1. Update in-memory / localStorage cache
+  try {
+    cleanupDummyUsers();
+    const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
+    const existing: UserPresence[] = raw ? JSON.parse(raw) : [];
+    const filtered = existing.filter((u) => u.uid !== presence.uid && !isDummyUser(u));
     filtered.unshift(presence);
     localStorage.setItem(STORAGE_KEY_LOCAL_USERS, JSON.stringify(filtered.slice(0, 50)));
 
@@ -374,7 +520,7 @@ export async function syncUserPresence(presence: UserPresence): Promise<void> {
     console.error('Local presence write error:', e);
   }
 
-  // 2. If Firebase Firestore is connected, write to Firestore 'users' collection
+  // 2. If Firebase Firestore is connected, write directly to Firestore 'users' collection
   if (db && isConfigured) {
     try {
       const userRef = doc(db, 'users', presence.uid);
@@ -385,11 +531,57 @@ export async function syncUserPresence(presence: UserPresence): Promise<void> {
   }
 }
 
-// Subscribe to active users for Admin Dashboard (guaranteed to return ALL users)
+// Normalize any document from Firebase Firestore database into UserPresence format
+export function normalizeUserPresence(data: any, docId: string): UserPresence {
+  const email = data.email || null;
+  const uid = data.uid || docId;
+  const isAdmin = checkIsAdmin(email);
+
+  return {
+    uid,
+    displayName: data.displayName || (email ? email.split('@')[0] : 'User'),
+    email,
+    photoURL: data.photoURL || null,
+    role: isAdmin ? 'admin' : (data.role === 'admin' ? 'admin' : 'user'),
+    status: data.status || 'offline',
+    lastSeen: data.lastSeen || data.updatedAt || data.createdAt || Date.now(),
+    createdAt: data.createdAt,
+    authProvider: data.authProvider || (isAdmin ? 'google' : 'email'),
+    browserInfo: data.browserInfo || 'Firebase User Account',
+    activeProject: data.activeProject || undefined,
+  };
+}
+
+// Fetch all users directly from Firebase Firestore database collection('users')
+export async function fetchAllFirebaseUsers(): Promise<UserPresence[]> {
+  cleanupDummyUsers();
+  const remoteUsers: UserPresence[] = [];
+
+  if (db && isConfigured) {
+    try {
+      const usersCol = collection(db, 'users');
+      const snap = await getDocs(usersCol);
+      snap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (!isDummyUser({ uid: docSnap.id, email: data.email })) {
+          remoteUsers.push(normalizeUserPresence(data, docSnap.id));
+        }
+      });
+    } catch (err) {
+      console.warn('Firestore fetch all users error:', err);
+    }
+  }
+
+  return getAllMergedUsers(remoteUsers);
+}
+
+// Subscribe to real-time users directly from Firebase Firestore database
 export function subscribeToActiveUsers(
   callback: (users: UserPresence[]) => void
 ): () => void {
-  // If Firestore is available, attach onSnapshot listener
+  cleanupDummyUsers();
+
+  // If Firestore is available, attach onSnapshot listener to the 'users' collection
   if (db && isConfigured) {
     try {
       const usersCol = collection(db, 'users');
@@ -399,15 +591,21 @@ export function subscribeToActiveUsers(
         (snapshot) => {
           const remoteUsers: UserPresence[] = [];
           snapshot.forEach((docSnap) => {
-            remoteUsers.push(docSnap.data() as UserPresence);
+            const data = docSnap.data();
+            if (!isDummyUser({ uid: docSnap.id, email: data.email })) {
+              remoteUsers.push(normalizeUserPresence(data, docSnap.id));
+            }
           });
           callback(getAllMergedUsers(remoteUsers));
         },
         (err) => {
           console.warn('Firestore snapshot error, falling back to local users:', err);
-          callback(getAllMergedUsers());
+          callback(getAllMergedUsers([]));
         }
       );
+
+      // Trigger immediate fetch to populate users without waiting
+      fetchAllFirebaseUsers().then(callback).catch(() => {});
 
       return unsubscribe;
     } catch (e) {
@@ -417,14 +615,14 @@ export function subscribeToActiveUsers(
 
   // Local storage listener fallback
   const handleUpdate = () => {
-    callback(getAllMergedUsers());
+    callback(getAllMergedUsers([]));
   };
 
   window.addEventListener('storage', handleUpdate);
   window.addEventListener('circuitlab-presence-update', handleUpdate);
 
   // Initial call
-  callback(getAllMergedUsers());
+  callback(getAllMergedUsers([]));
 
   return () => {
     window.removeEventListener('storage', handleUpdate);
@@ -432,15 +630,21 @@ export function subscribeToActiveUsers(
   };
 }
 
-// Consolidate all users from registered accounts, authorized admins, active presence, and cohort
+// Consolidate real users from Firebase Firestore database, authorized admins, and active sessions
+// (NO DUMMY USERS)
 export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresence[] {
   const userMap = new Map<string, UserPresence>();
   const now = Date.now();
 
-  // 1. Base lab cohort students (8 diverse students working on electronics labs)
-  for (const u of getSeedSampleUsers()) {
-    const key = (u.email || u.uid).toLowerCase();
-    userMap.set(key, { ...u, authProvider: u.authProvider || 'google' });
+  // 1. All real users from Firebase Firestore database collection('users')
+  for (const ru of remoteUsers) {
+    if (isDummyUser(ru)) continue;
+    const key = (ru.email || ru.uid).toLowerCase();
+    const isAdmin = checkIsAdmin(ru.email);
+    userMap.set(key, {
+      ...ru,
+      role: isAdmin ? 'admin' : (ru.role || 'user'),
+    });
   }
 
   // 2. Both Authorized Administrator accounts
@@ -456,25 +660,18 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
       status: existing?.status || 'online',
       lastSeen: existing?.lastSeen || now - 1000 * 30,
       authProvider: 'google',
-      browserInfo: existing?.browserInfo || 'Chrome • Windows (Admin Session)',
-      activeProject: existing?.activeProject || {
-        id: 'admin-proj-01',
-        name: 'Master Instrumentation & Logic Testbench',
-        componentCount: 14,
-        wireCount: 32,
-        isSimulating: true,
-        daqEnabled: true,
-        lastUpdated: now - 1000 * 15,
-      },
+      browserInfo: existing?.browserInfo || 'Chrome • Windows (Admin)',
+      activeProject: existing?.activeProject,
     });
   }
 
-  // 3. Stored active presence entries from localStorage
+  // 3. Stored active presence entries from localStorage (non-dummy)
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
     if (raw) {
       const stored: UserPresence[] = JSON.parse(raw);
       for (const s of stored) {
+        if (isDummyUser(s)) continue;
         const key = (s.email || s.uid).toLowerCase();
         const existing = userMap.get(key);
         userMap.set(key, { ...(existing || {}), ...s });
@@ -484,8 +681,9 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     console.warn('Error reading STORAGE_KEY_LOCAL_USERS:', e);
   }
 
-  // 4. All registered user accounts from STORAGE_KEY_REGISTERED_USERS
+  // 4. Any locally registered accounts
   for (const reg of getRegisteredUsers()) {
+    if (isDummyUser(reg)) continue;
     const key = reg.email.toLowerCase();
     const existing = userMap.get(key);
     userMap.set(key, {
@@ -503,10 +701,10 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     });
   }
 
-  // 5. Currently logged-in user (simulated or real auth)
+  // 5. Currently logged-in user session
   try {
     const currentSim = getSimulatedUser();
-    if (currentSim && currentSim.email) {
+    if (currentSim && currentSim.email && !isDummyUser(currentSim)) {
       const key = currentSim.email.toLowerCase();
       const existing = userMap.get(key);
       const isAdminCalculated = checkIsAdmin(currentSim.email);
@@ -519,18 +717,11 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
         status: 'online',
         lastSeen: now,
         authProvider: currentSim.authProvider || 'google',
-        browserInfo: existing?.browserInfo || 'Active Session • Live Web Browser',
+        browserInfo: existing?.browserInfo || 'Active Session',
         activeProject: existing?.activeProject,
       });
     }
   } catch {}
-
-  // 6. Remote Firestore users (if present)
-  for (const ru of remoteUsers) {
-    const key = (ru.email || ru.uid).toLowerCase();
-    const existing = userMap.get(key);
-    userMap.set(key, { ...(existing || {}), ...ru });
-  }
 
   // Sort: Online first, then Admins, then by lastSeen descending
   const list = Array.from(userMap.values());
@@ -539,181 +730,15 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     if (b.status === 'online' && a.status !== 'online') return 1;
     if (a.role === 'admin' && b.role !== 'admin') return -1;
     if (b.role === 'admin' && a.role !== 'admin') return 1;
-    return b.lastSeen - a.lastSeen;
+    return (b.lastSeen || 0) - (a.lastSeen || 0);
   });
 
   return list;
 }
 
 export function getLocalActiveUsers(): UserPresence[] {
-  return getAllMergedUsers();
-}
-
-// Seed sample users to provide rich active users data for the Admin view immediately
-function getSeedSampleUsers(): UserPresence[] {
-  const now = Date.now();
-  return [
-    {
-      uid: 'user-active-01',
-      displayName: 'Marcus Thorne',
-      email: 'm.thorne@mit.edu',
-      photoURL: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'online',
-      authProvider: 'google',
-      lastSeen: now - 1000 * 25, // 25s ago
-      activeProject: {
-        id: 'proj-01',
-        name: 'Dual 74HC08 AND Gate Array',
-        componentCount: 6,
-        wireCount: 14,
-        isSimulating: true,
-        daqEnabled: true,
-        lastUpdated: now - 1000 * 30,
-      },
-      browserInfo: 'Chrome 122 • Windows 11',
-    },
-    {
-      uid: 'user-active-02',
-      displayName: 'Elena Rostova',
-      email: 'elena.rostova@stanford.edu',
-      photoURL: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'online',
-      authProvider: 'google',
-      lastSeen: now - 1000 * 80, // 80s ago
-      activeProject: {
-        id: 'proj-02',
-        name: '555 Timer Astable Multivibrator',
-        componentCount: 9,
-        wireCount: 22,
-        isSimulating: true,
-        daqEnabled: false,
-        lastUpdated: now - 1000 * 95,
-      },
-      browserInfo: 'Firefox 123 • macOS Sonoma',
-    },
-    {
-      uid: 'user-active-03',
-      displayName: 'David K. Park',
-      email: 'david.park@berkeley.edu',
-      photoURL: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'idle',
-      authProvider: 'google',
-      lastSeen: now - 1000 * 340, // ~5m ago
-      activeProject: {
-        id: 'proj-03',
-        name: 'RC Low-Pass Filter & Bode Plot',
-        componentCount: 4,
-        wireCount: 8,
-        isSimulating: false,
-        daqEnabled: false,
-        lastUpdated: now - 1000 * 350,
-      },
-      browserInfo: 'Edge 122 • Windows 10',
-    },
-    {
-      uid: 'user-active-04',
-      displayName: 'Amina Al-Mansoor',
-      email: 'amina.mansoor@oxford.ac.uk',
-      photoURL: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'offline',
-      authProvider: 'google',
-      lastSeen: now - 1000 * 3600 * 2, // 2h ago
-      activeProject: {
-        id: 'proj-04',
-        name: 'Full Adder with 74HC86 XOR & 74HC08',
-        componentCount: 12,
-        wireCount: 28,
-        isSimulating: false,
-        daqEnabled: false,
-        lastUpdated: now - 1000 * 3600 * 2,
-      },
-      browserInfo: 'Chrome 122 • Ubuntu Linux',
-    },
-    {
-      uid: 'user-active-05',
-      displayName: 'Sarah Chen',
-      email: 'sarah.chen@university.edu',
-      photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'online',
-      authProvider: 'email',
-      lastSeen: now - 1000 * 45,
-      activeProject: {
-        id: 'proj-05',
-        name: '74HC04 Hex Inverter Ring Oscillator',
-        componentCount: 8,
-        wireCount: 18,
-        isSimulating: true,
-        daqEnabled: true,
-        lastUpdated: now - 1000 * 60,
-      },
-      browserInfo: 'Safari 17 • macOS Ventura',
-    },
-    {
-      uid: 'user-active-06',
-      displayName: 'Alex Rivera',
-      email: 'alex.rivera@polytech.edu',
-      photoURL: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'idle',
-      authProvider: 'email',
-      lastSeen: now - 1000 * 600,
-      activeProject: {
-        id: 'proj-06',
-        name: '4-Bit Ripple Counter with 74HC86 & Flip-Flops',
-        componentCount: 15,
-        wireCount: 34,
-        isSimulating: false,
-        daqEnabled: true,
-        lastUpdated: now - 1000 * 700,
-      },
-      browserInfo: 'Chrome 123 • Windows 11',
-    },
-    {
-      uid: 'user-active-07',
-      displayName: 'Priya Sharma',
-      email: 'priya.sharma@iitd.ac.in',
-      photoURL: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'online',
-      authProvider: 'google',
-      lastSeen: now - 1000 * 15,
-      activeProject: {
-        id: 'proj-07',
-        name: 'Clock Generator & Frequency Divider',
-        componentCount: 7,
-        wireCount: 16,
-        isSimulating: true,
-        daqEnabled: true,
-        lastUpdated: now - 1000 * 20,
-      },
-      browserInfo: 'Firefox 124 • Linux Fedora',
-    },
-    {
-      uid: 'user-active-08',
-      displayName: 'Liam O\'Connor',
-      email: 'liam.oconnor@tcd.ie',
-      photoURL: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-      role: 'user',
-      status: 'offline',
-      authProvider: 'email',
-      lastSeen: now - 1000 * 3600 * 5,
-      activeProject: {
-        id: 'proj-08',
-        name: 'Common Emitter Amplifier & DMM Load Analysis',
-        componentCount: 10,
-        wireCount: 20,
-        isSimulating: false,
-        daqEnabled: false,
-        lastUpdated: now - 1000 * 3600 * 6,
-      },
-      browserInfo: 'Edge 123 • Windows 11',
-    },
-  ];
+  cleanupDummyUsers();
+  return getAllMergedUsers([]);
 }
 
 // Watch auth state changes from Firebase

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { subscribeToActiveUsers, getLocalActiveUsers } from '../../services/firebase';
+import { subscribeToActiveUsers, getLocalActiveUsers, fetchAllFirebaseUsers } from '../../services/firebase';
 import { UserPresence } from '../../types/auth';
 
 type FilterTab = 'all' | 'online' | 'simulating' | 'admins' | 'registered' | 'projects';
@@ -14,10 +14,16 @@ export function AdminDashboardModal() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
 
-  // Subscribe to real-time users presence (Firestore + Local Storage sync)
+  // Subscribe to real-time users from Firebase Firestore database
   useEffect(() => {
     if (!isAdminModalOpen || !isAdmin) return;
 
+    // Fetch initial list directly from Firebase Firestore database
+    fetchAllFirebaseUsers().then((list) => {
+      setUsers(list);
+    }).catch(() => {});
+
+    // Real-time listener on Firestore 'users' collection
     const unsubscribe = subscribeToActiveUsers((activeList) => {
       setUsers(activeList);
     });
@@ -65,11 +71,16 @@ export function AdminDashboardModal() {
   // STRICT GUARD: Only authorized admin can ever render the admin dashboard modal
   if (!isAdminModalOpen || !isAdmin || !user) return null;
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    const fresh = getLocalActiveUsers();
-    setUsers(fresh);
-    setTimeout(() => setIsRefreshing(false), 500);
+    try {
+      const fresh = await fetchAllFirebaseUsers();
+      setUsers(fresh);
+    } catch {
+      setUsers(getLocalActiveUsers());
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
   };
 
   const handleCopy = (text: string, label: string) => {
@@ -132,8 +143,8 @@ export function AdminDashboardModal() {
       );
     }
     return (
-      <span className="user-provider-chip cohort-chip" title="Simulated Student Cohort">
-        🎓 Cohort
+      <span className="user-provider-chip email-chip" title="Firebase User Account">
+        👤 User
       </span>
     );
   };
@@ -171,7 +182,7 @@ export function AdminDashboardModal() {
                 )}
               </div>
               <p className="admin-modal-subtitle">
-                Authorized Lab Administrator: <strong>{user.email}</strong> • Monitoring <strong>{users.length}</strong> total lab accounts
+                Authorized Lab Administrator: <strong>{user.email}</strong> • Connected to Firebase Firestore Database (<strong>{users.length}</strong> {users.length === 1 ? 'user' : 'users'})
               </p>
             </div>
           </div>
@@ -514,7 +525,7 @@ export function AdminDashboardModal() {
                   <div className="meta-item">
                     <span className="meta-label">Auth Provider</span>
                     <span className="meta-value">
-                      {selectedUser.authProvider === 'google' ? 'Google Auth' : selectedUser.authProvider === 'email' ? 'Email / Password' : 'Lab Cohort'}
+                      {selectedUser.authProvider === 'google' ? 'Google Auth' : selectedUser.authProvider === 'email' ? 'Email / Password' : 'Firebase Database'}
                     </span>
                   </div>
 
