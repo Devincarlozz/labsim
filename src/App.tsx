@@ -318,25 +318,6 @@ function AppRoot() {
   // After login, show the main page workspace with test mode badging, admin modal, and guides
   return (
     <>
-      {testMode.enabled && (
-        <div className="test-mode-workspace-ribbon">
-          <div className="ribbon-content">
-            <span className="ribbon-beacon" />
-            <span className="ribbon-text">
-              🔒 <strong>Real-User Test Mode Active</strong> — Workspace access is locked to authorized testers ({testMode.allowedEmails.length} custom whitelisted).
-            </span>
-          </div>
-          {isAdmin && (
-            <button
-              className="ribbon-admin-btn"
-              onClick={() => setAdminModalOpen(true)}
-              title="Open Admin Center to manage whitelisted tester emails"
-            >
-              Manage Test Lock & Emails ⚙️
-            </button>
-          )}
-        </div>
-      )}
       <EditorShell />
       <AdminDashboardModal />
       <AdminMessageModal
