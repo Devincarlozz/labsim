@@ -328,6 +328,37 @@ export function Toolbar({
             )}
           </div>
 
+          {/* Admin Notice Bell Button */}
+          <button
+            type="button"
+            className="header-notice-bell-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-admin-messages'))}
+            title="Lab Administration Messages & Announcements"
+            aria-label="Open Admin Messages"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            <span className="notice-bell-indicator" />
+          </button>
+
+          {/* Quick Guide / Get Started Tour Button */}
+          <button
+            type="button"
+            className="header-guide-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-get-started'))}
+            title="Interactive Quick-Start Guide (Components, Wiring, Power, Shortcuts)"
+            aria-label="Open Quick-Start Guide"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span className="guide-btn-text">Guide</span>
+          </button>
+
           {/* User profile avatar / Login trigger */}
           <div className="header-profile-dropdown-wrapper" ref={profileDropdownRef}>
             <div

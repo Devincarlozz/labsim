@@ -396,8 +396,8 @@ export function AdminDashboardModal() {
                         </span>
                       </div>
 
-                      <div className="user-last-seen-badge">
-                        <span>{u.status === 'online' ? '🟢 Online' : formatTimeAgo(u.lastSeen)}</span>
+                      <div className={`user-last-seen-badge ${isOnline ? 'is-online' : 'is-offline'}`}>
+                        <span>{isOnline ? '🟢 Online (Active)' : `⚪ Offline (${formatTimeAgo(u.lastSeen)})`}</span>
                       </div>
                     </div>
 

@@ -18,6 +18,7 @@ import {
   CapacitorComponent,
   DACComponent,
   LEDComponent,
+  DiodeComponent,
   LEDColor,
   ComponentPin,
   Point,
@@ -30,9 +31,9 @@ import {
   WorkspaceTab,
 } from '../model/types';
 import {
-  saveWebcontentToCookies,
-  loadWebcontentFromCookies,
-} from '../utils/cookieStorage';
+  saveWebcontent,
+  loadWebcontent,
+} from '../services/serverLogService';
 import {
   createBreadboardModel,
   BOARD_PADDING,
@@ -109,6 +110,14 @@ function createLEDPins(): ComponentPin[] {
   return [
     { id: genId('pin'), label: 'Anode (+)', position: { x: 0, y: 0 } },
     { id: genId('pin'), label: 'Cathode (-)', position: { x: 14, y: 0 } },
+  ];
+}
+
+function createDiodePins(): ComponentPin[] {
+  // Anode (A) at x=0, Cathode (K) at x=56 — same span as a resistor (4 holes)
+  return [
+    { id: genId('pin'), label: 'Anode (A)', position: { x: 0, y: 0 } },
+    { id: genId('pin'), label: 'Cathode (K)', position: { x: 56, y: 0 } },
   ];
 }
 
@@ -215,6 +224,39 @@ export function snapComponentToBreadboard(
             x: closestC.position.x,
             y: targetY,
           };
+        } else {
+          anchorPos = { x: closestC.position.x, y: closestC.position.y };
+        }
+      } else if (comp.type === 'diode') {
+        // Diode spans 56px (same as resistor — 4 breadboard columns)
+        if (rot === 0) {
+          const clampedCol = Math.max(1, Math.min(60, closestC.col));
+          anchorPos = {
+            x: col1X + (clampedCol - 1) * HOLE_SPACING,
+            y: closestC.position.y,
+          };
+        } else if (rot === 180) {
+          const clampedCol = Math.max(5, Math.min(64, closestC.col));
+          anchorPos = {
+            x: col1X + (clampedCol - 1) * HOLE_SPACING,
+            y: closestC.position.y,
+          };
+        } else if (rot === 90) {
+          let targetY = 86;
+          if (closestC.position.y >= 115 && closestC.position.y < 155) {
+            targetY = 128;
+          } else if (closestC.position.y >= 155) {
+            targetY = 170;
+          }
+          anchorPos = { x: closestC.position.x, y: targetY };
+        } else if (rot === 270) {
+          let targetY = 142;
+          if (closestC.position.y >= 155 && closestC.position.y < 205) {
+            targetY = 184;
+          } else if (closestC.position.y >= 205) {
+            targetY = 226;
+          }
+          anchorPos = { x: closestC.position.x, y: targetY };
         } else {
           anchorPos = { x: closestC.position.x, y: closestC.position.y };
         }
@@ -450,7 +492,7 @@ function createInitialState(): Project {
       },
       daq: {
         enabled: false,
-        dioBits: [1, 0, 1, 1, 0, 0, 1, 0],
+        dioBits: [0, 0, 0, 0, 0, 0, 0, 0],
         dioDirection: [true, true, true, true, false, false, false, false],
         visible: true,
       },
@@ -642,7 +684,7 @@ This circuit implements an Astable Multivibrator using the **NE555 Precision Tim
       clock: { frequency: 1000, dutyCycle: 0.5, running: true },
       daq: {
         enabled: true,
-        dioBits: [1, 0, 1, 1, 0, 0, 1, 0],
+        dioBits: [0, 0, 0, 0, 0, 0, 0, 0],
         dioDirection: [true, true, true, true, false, false, false, false],
         visible: true,
       },
@@ -808,6 +850,7 @@ type Action =
   | { type: 'UPDATE_RESISTOR'; id: ComponentId; resistance: number; unit: 'Ω' | 'kΩ' | 'MΩ'; tolerance?: string; powerRating?: string }
   | { type: 'UPDATE_CAPACITOR'; id: ComponentId; capacitance: number; unit: 'pF' | 'nF' | 'µF'; tolerance?: string; voltageRating?: string; dielectric?: string }
   | { type: 'UPDATE_LED'; id: ComponentId; color?: LEDColor; forwardVoltage?: number; testGlow?: boolean; maxCurrent?: number; illuminated?: boolean }
+  | { type: 'UPDATE_DIODE'; id: ComponentId; model?: string; forwardVoltage?: number; reverseBreakdown?: number; maxCurrent?: number }
   | { type: 'UPDATE_IC_TYPE'; id: ComponentId; icType: ICType }
   | { type: 'START_WIRE'; contactId: ContactId }
   | { type: 'FINISH_WIRE'; contactId: ContactId }
@@ -837,7 +880,7 @@ type Action =
 function createComponent(componentType: PlacingComponent, position: Point): CircuitComponent | null {
   if (!componentType) return null;
 
-  const icTypes: ICType[] = ['74HC00', '74HC02', '74HC04', '74HC08', '74HC32', '74HC86', '74HC74', '7400', '7402', '7404', '7408', '7432', '7486', '7474', 'NE555'];
+  const icTypes: ICType[] = ['74HC00', '74HC02', '74HC04', '74HC08', '74HC32', '74HC86', '74HC74', '7400', '7402', '7404', '7408', '7432', '7486', '7474', 'NE555', 'LM741', '741'];
 
   if (icTypes.includes(componentType as ICType)) {
     const icType = componentType as ICType;
@@ -928,6 +971,25 @@ function createComponent(componentType: PlacingComponent, position: Point): Circ
         position,
         rotation: 0,
         pins: createLEDPins(),
+        selected: false,
+      };
+      return comp;
+    }
+    case 'diode':
+    case '1N4001':
+    case 'IN4001': {
+      const comp: DiodeComponent = {
+        id: genId('diode'),
+        type: 'diode',
+        model: '1N4001',
+        label: '1N4001',
+        forwardVoltage: 0.7,
+        reverseBreakdown: 50,
+        maxCurrent: 1.0,
+        conducting: false,
+        position,
+        rotation: 0,
+        pins: createDiodePins(),
         selected: false,
       };
       return comp;
@@ -1212,6 +1274,21 @@ function reducer(state: Project, action: Action): Project {
       return { ...state, components: newComponents };
     }
 
+    case 'UPDATE_DIODE': {
+      const newComponents = new Map(state.components);
+      const comp = newComponents.get(action.id);
+      if (comp && comp.type === 'diode') {
+        newComponents.set(action.id, {
+          ...comp,
+          model: action.model !== undefined ? action.model : comp.model,
+          forwardVoltage: action.forwardVoltage !== undefined ? action.forwardVoltage : comp.forwardVoltage,
+          reverseBreakdown: action.reverseBreakdown !== undefined ? action.reverseBreakdown : comp.reverseBreakdown,
+          maxCurrent: action.maxCurrent !== undefined ? action.maxCurrent : comp.maxCurrent,
+        } as DiodeComponent);
+      }
+      return { ...state, components: newComponents };
+    }
+
     case 'UPDATE_IC_TYPE': {
       const newComponents = new Map(state.components);
       const comp = newComponents.get(action.id);
@@ -1333,7 +1410,7 @@ function reducer(state: Project, action: Action): Project {
           ...state.instruments,
           daq: {
             enabled: true,
-            dioBits: state.instruments.daq?.dioBits ?? [1, 0, 1, 1, 0, 0, 1, 0],
+            dioBits: state.instruments.daq?.dioBits ?? [0, 0, 0, 0, 0, 0, 0, 0],
             dioDirection: state.instruments.daq?.dioDirection ?? [true, true, true, true, false, false, false, false],
             visible: state.instruments.daq?.visible ?? true,
           },
@@ -1411,7 +1488,7 @@ function reducer(state: Project, action: Action): Project {
           ...state.instruments,
           daq: {
             enabled: state.instruments.daq?.enabled ?? true,
-            dioBits: state.instruments.daq?.dioBits ?? [1, 0, 1, 1, 0, 0, 1, 0],
+            dioBits: state.instruments.daq?.dioBits ?? [0, 0, 0, 0, 0, 0, 0, 0],
             dioDirection: state.instruments.daq?.dioDirection ?? [true, true, true, true, false, false, false, false],
             visible: state.instruments.daq?.visible ?? true,
             ...action.settings,
@@ -1440,7 +1517,7 @@ function reducer(state: Project, action: Action): Project {
           ...state.instruments,
           daq: {
             enabled: state.instruments.daq?.enabled ?? true,
-            dioBits: state.instruments.daq?.dioBits ?? [1, 0, 1, 1, 0, 0, 1, 0],
+            dioBits: state.instruments.daq?.dioBits ?? [0, 0, 0, 0, 0, 0, 0, 0],
             visible: !currentVisible,
           },
         },
@@ -1572,7 +1649,7 @@ export function createEmptySerializedProject(name = 'Workspace'): SerializedProj
       oscillator: { frequency: 1000, amplitude: 5.0, enabled: true },
       functionGenerator: { frequency: 500, amplitude: 3.3, waveform: 'square', dcOffset: 0.0, enabled: false },
       clock: { frequency: 1000, dutyCycle: 0.5, running: false },
-      daq: { enabled: false, dioBits: [1, 0, 1, 1, 0, 0, 1, 0], visible: true },
+      daq: { enabled: false, dioBits: [0, 0, 0, 0, 0, 0, 0, 0], visible: true },
     },
     notes: `# ${name} Notes\n\nFresh circuit bench workspace ready for components and simulation.`,
   };
@@ -1613,8 +1690,8 @@ export function useStore(): StoreContextValue {
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  // Read saved cookie webcontent on initial boot
-  const initialSaved = useRef(loadWebcontentFromCookies());
+  // Read saved webcontent on initial boot
+  const initialSaved = useRef(loadWebcontent());
 
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     const defaultState = createInitialState();
@@ -1818,11 +1895,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [activeWorkspaceId]);
 
-  // Save webcontent to cookies manually or programmatically
+  // Save webcontent to resilient storage & server log
   const saveToCookies = useCallback((): boolean => {
     const updatedWorkspaces = snapshotActiveWorkspace(workspaces, state);
     const now = Date.now();
-    const success = saveWebcontentToCookies({
+    const success = saveWebcontent({
       version: 1,
       activeWorkspaceId,
       workspaces: updatedWorkspaces,
@@ -1836,7 +1913,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [snapshotActiveWorkspace, workspaces, state, activeWorkspaceId]);
 
   const loadFromCookies = useCallback((): boolean => {
-    const saved = loadWebcontentFromCookies();
+    const saved = loadWebcontent();
     if (saved && saved.workspaces && saved.workspaces.length > 0) {
       setWorkspaces(saved.workspaces);
       const activeTab = saved.workspaces.find(w => w.id === saved.activeWorkspaceId) || saved.workspaces[0];
@@ -1859,6 +1936,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       simRunner.start();
     } else {
       simRunner.stop();
+      simRunner.notifyListeners(simEngine.getSnapshot());
     }
   }, [
     state.wires,
@@ -1869,7 +1947,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     state.simulation.status,
   ]);
 
-  // Auto-save to cookies on debounced changes (500ms)
+  // Synchronous auto-save immediately before page unload/refresh to guarantee 100% preservation
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const currentWs = snapshotActiveWorkspace(workspacesRef.current, stateRef.current);
+      saveWebcontent({
+        version: 1,
+        activeWorkspaceId: activeIdRef.current,
+        workspaces: currentWs,
+        lastSaved: Date.now(),
+        notes: stateRef.current.notes,
+      });
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [snapshotActiveWorkspace]);
+
+  // Auto-save on debounced changes (400ms) to resilient local storage & server-side log
   const stateRef = useRef(state);
   stateRef.current = state;
   const workspacesRef = useRef(workspaces);
@@ -1881,7 +1975,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const timer = setTimeout(() => {
       const currentWs = snapshotActiveWorkspace(workspacesRef.current, stateRef.current);
       const now = Date.now();
-      const ok = saveWebcontentToCookies({
+      const ok = saveWebcontent({
         version: 1,
         activeWorkspaceId: activeIdRef.current,
         workspaces: currentWs,
@@ -1891,7 +1985,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (ok) {
         setCookieLastSaved(now);
       }
-    }, 600);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [state, activeWorkspaceId, snapshotActiveWorkspace]);
@@ -1924,7 +2018,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     setTimeout(() => {
       const now = Date.now();
-      saveWebcontentToCookies({
+      saveWebcontent({
         version: 1,
         activeWorkspaceId: newId,
         workspaces: nextWorkspaces,
@@ -1956,7 +2050,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     setTimeout(() => {
       const now = Date.now();
-      saveWebcontentToCookies({
+      saveWebcontent({
         version: 1,
         activeWorkspaceId: targetId,
         workspaces: currentWs,
@@ -2016,7 +2110,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     setTimeout(() => {
       const now = Date.now();
-      saveWebcontentToCookies({
+      saveWebcontent({
         version: 1,
         activeWorkspaceId: nextActiveId,
         workspaces: remaining,
@@ -2073,7 +2167,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     setTimeout(() => {
       const now = Date.now();
-      saveWebcontentToCookies({
+      saveWebcontent({
         version: 1,
         activeWorkspaceId: newId,
         workspaces: nextWorkspaces,

@@ -7,7 +7,7 @@
 import { Project, ICComponent } from '../../model/types';
 import { deriveElectricalNodes } from '../../model/connectivity';
 import { SimEngine } from './SimEngine';
-import { GateICComponent, NE555Component, DFlipFlopComponent } from './GateModel';
+import { GateICComponent, NE555Component, DFlipFlopComponent, OpAmp741Component } from './GateModel';
 
 /**
  * Recompiles the complete netlist into the SimEngine from current project state.
@@ -60,6 +60,8 @@ export function syncNetlistToEngine(engine: SimEngine, project: Project): void {
       let simComp;
       if (ic.icType === 'NE555') {
         simComp = new NE555Component(ic.id);
+      } else if (ic.icType === 'LM741' || ic.icType === '741') {
+        simComp = new OpAmp741Component(ic.id);
       } else if (ic.icType === '7474' || ic.icType === '74HC74') {
         simComp = new DFlipFlopComponent(ic.id);
       } else {
@@ -88,33 +90,50 @@ export function syncNetlistToEngine(engine: SimEngine, project: Project): void {
   // 5. Connect pins to nets
   for (const [nodeId, elNode] of electricalNodes.entries()) {
     const connectedPinIds: string[] = [];
+    const addPin = (pinId: string) => {
+      if (!connectedPinIds.includes(pinId)) {
+        connectedPinIds.push(pinId);
+      }
+    };
 
+    // First collect all component pins on this electrical node and check for active output drivers
+    let hasComponentOutputDriver = false;
     for (const cId of elNode.contactIds) {
-      // Check if a component pin is on this contact
       const compPinId = contactToComponentPinMap.get(cId);
       if (compPinId) {
-        connectedPinIds.push(compPinId);
+        addPin(compPinId);
+        const pObj = engine.pins.get(compPinId);
+        if (pObj && (pObj.dir === 'out' || pObj.dir === 'inout')) {
+          hasComponentOutputDriver = true;
+        }
       }
+    }
 
+    for (const cId of elNode.contactIds) {
       // Check for DAQ Terminals
       if (cId.startsWith('daq-')) {
-        if (cId === 'daq-v5v') connectedPinIds.push('daq.V5V');
-        else if (cId === 'daq-p15v') connectedPinIds.push('daq.P15V');
-        else if (cId === 'daq-n15v') connectedPinIds.push('daq.N15V');
-        else if (cId === 'daq-dgnd') connectedPinIds.push('daq.DGND');
-        else if (cId === 'daq-agnd1') connectedPinIds.push('daq.AGND1');
-        else if (cId === 'daq-agnd2') connectedPinIds.push('daq.AGND2');
-        else if (cId === 'daq-ao0') connectedPinIds.push('daq.AO0');
-        else if (cId === 'daq-ao1') connectedPinIds.push('daq.AO1');
-        else if (cId === 'daq-ai0_p') connectedPinIds.push('daq.AI0_P');
-        else if (cId === 'daq-ai0_m') connectedPinIds.push('daq.AI0_M');
-        else if (cId === 'daq-ai1_p') connectedPinIds.push('daq.AI1_P');
-        else if (cId === 'daq-ai1_m') connectedPinIds.push('daq.AI1_M');
+        if (cId === 'daq-v5v') addPin('daq.V5V');
+        else if (cId === 'daq-p15v') addPin('daq.P15V');
+        else if (cId === 'daq-n15v') addPin('daq.N15V');
+        else if (cId === 'daq-dgnd') addPin('daq.DGND');
+        else if (cId === 'daq-agnd1') addPin('daq.AGND1');
+        else if (cId === 'daq-agnd2') addPin('daq.AGND2');
+        else if (cId === 'daq-ao0') addPin('daq.AO0');
+        else if (cId === 'daq-ao1') addPin('daq.AO1');
+        else if (cId === 'daq-ai0_p') addPin('daq.AI0_P');
+        else if (cId === 'daq-ai0_m') addPin('daq.AI0_M');
+        else if (cId === 'daq-ai1_p') addPin('daq.AI1_P');
+        else if (cId === 'daq-ai1_m') addPin('daq.AI1_M');
         else {
           for (let i = 0; i < 8; i++) {
             if (cId === `daq-dio${i}`) {
-              const isOutput = dioDirections[i] !== false;
-              connectedPinIds.push(isOutput ? `daq.DO${i}` : `daq.DI${i}`);
+              // When a component output is driving this net, or DIO is configured as input, use DI only
+              const isOutput = !hasComponentOutputDriver && (dioDirections[i] !== false);
+              if (isOutput) {
+                addPin(`daq.DO${i}`);
+              }
+              // Always add DI for reading back the net voltage
+              addPin(`daq.DI${i}`);
             }
           }
         }
@@ -123,10 +142,10 @@ export function syncNetlistToEngine(engine: SimEngine, project: Project): void {
       // Check for Breadboard Power/Ground Rails
       if (cId.startsWith('r-0-') || cId.startsWith('r-2-')) {
         // Top and bottom +5V power rails
-        connectedPinIds.push('daq.V5V');
+        addPin('daq.V5V');
       } else if (cId.startsWith('r-1-') || cId.startsWith('r-3-')) {
         // Top and bottom GND rails
-        connectedPinIds.push('daq.DGND');
+        addPin('daq.DGND');
       }
     }
 

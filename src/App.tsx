@@ -9,6 +9,8 @@ import { BottomInstrumentSuite } from './components/instruments/BottomInstrument
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { AdminDashboardModal } from './components/admin/AdminDashboardModal';
+import { AdminMessageModal } from './components/admin/AdminMessageModal';
+import { GetStartedModal } from './components/onboarding/GetStartedModal';
 import './styles/app.css';
 
 function EditorShell() {
@@ -244,6 +246,55 @@ function EditorShell() {
 
 function AppRoot() {
   const { user, loading } = useAuth();
+  const [adminMessageModalOpen, setAdminMessageModalOpen] = useState(false);
+  const [getStartedModalOpen, setGetStartedModalOpen] = useState(false);
+  const [isAutoChain, setIsAutoChain] = useState(false);
+  const prevUserRef = useRef<string | null>(null);
+
+  // Automatically show Admin Message & Guide only ONCE A DAY (not on every refresh)
+  useEffect(() => {
+    if (user) {
+      if (prevUserRef.current !== user.uid) {
+        prevUserRef.current = user.uid;
+
+        try {
+          const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+          const dailyNoticeKey = `circuitlab_daily_notices_${user.uid || 'guest'}`;
+          const lastShownDate = localStorage.getItem(dailyNoticeKey);
+
+          if (lastShownDate !== todayStr) {
+            // First time entering today: show once automatically
+            localStorage.setItem(dailyNoticeKey, todayStr);
+            setIsAutoChain(true);
+            setAdminMessageModalOpen(true);
+          }
+        } catch (e) {
+          console.warn('Daily notice check failed:', e);
+        }
+      }
+    } else {
+      prevUserRef.current = null;
+    }
+  }, [user]);
+
+  // Allow reopening Admin Message Panel or Get Started Guide anytime manually via Toolbar buttons
+  useEffect(() => {
+    const handleOpenAdmin = () => {
+      setIsAutoChain(false);
+      setAdminMessageModalOpen(true);
+    };
+    const handleOpenGetStarted = () => {
+      setIsAutoChain(false);
+      setGetStartedModalOpen(true);
+    };
+
+    window.addEventListener('open-admin-messages', handleOpenAdmin);
+    window.addEventListener('open-get-started', handleOpenGetStarted);
+    return () => {
+      window.removeEventListener('open-admin-messages', handleOpenAdmin);
+      window.removeEventListener('open-get-started', handleOpenGetStarted);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -258,11 +309,29 @@ function AppRoot() {
     return <LoginPage />;
   }
 
-  // After login, show the main page workspace!
+  // After login, show the main page workspace with admin message modal and chained get started guide!
   return (
     <>
       <EditorShell />
       <AdminDashboardModal />
+      <AdminMessageModal
+        isOpen={adminMessageModalOpen}
+        onClose={() => {
+          setAdminMessageModalOpen(false);
+          // If this was the once-a-day automatic login sequence, chain into Get Started guide
+          if (isAutoChain) {
+            setIsAutoChain(false);
+            setGetStartedModalOpen(true);
+          }
+        }}
+      />
+      <GetStartedModal
+        isOpen={getStartedModalOpen}
+        onClose={() => {
+          setGetStartedModalOpen(false);
+          setIsAutoChain(false);
+        }}
+      />
     </>
   );
 }

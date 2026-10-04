@@ -1,0 +1,24 @@
+[
+  {
+    "id": "msg-welcome-lab",
+    "title": "Welcome to CircuitLab Digital Electronics Lab",
+    "content": "Please ensure power rails (+5V and GND) are correctly routed before activating the simulation. Breadboard circuits can be tested with the Oscilloscope and Function Generator.",
+    "sender": "Bhagath Krishnan",
+    "senderEmail": "bhagathkrishnan06@gmail.com",
+    "priority": "important",
+    "category": "lab_notice",
+    "createdAt": 1791023845825,
+    "active": true
+  },
+  {
+    "id": "msg-counter-assignment",
+    "title": "Lab Notice: Modulo-N Counter Experiments",
+    "content": "Experiment 4 counter designs using 74HC74 D-Flip Flops and 74HC08 logic gates must be verified with clock pulses from Digital IO or Function Generator.",
+    "sender": "Bhagath Krishnan",
+    "senderEmail": "bhagathkrishnan06@gmail.com",
+    "priority": "normal",
+    "category": "assignment",
+    "createdAt": 1790941045825,
+    "active": true
+  }
+]

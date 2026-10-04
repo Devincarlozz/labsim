@@ -579,12 +579,18 @@ export function subscribeToActiveUsers(
 ): () => void {
   cleanupDummyUsers();
 
+  const handleUpdate = () => {
+    callback(getAllMergedUsers([]));
+  };
+
+  let firestoreUnsubscribe: (() => void) | null = null;
+
   // If Firestore is available, attach onSnapshot listener to the 'users' collection
   if (db && isConfigured) {
     try {
       const usersCol = collection(db, 'users');
       const q = query(usersCol);
-      const unsubscribe = onSnapshot(
+      firestoreUnsubscribe = onSnapshot(
         q,
         (snapshot) => {
           const remoteUsers: UserPresence[] = [];
@@ -601,30 +607,28 @@ export function subscribeToActiveUsers(
           callback(getAllMergedUsers([]));
         }
       );
-
-      // Trigger immediate fetch to populate users without waiting
-      fetchAllFirebaseUsers().then(callback).catch(() => {});
-
-      return unsubscribe;
     } catch (e) {
       console.warn('Firestore subscribe error:', e);
     }
   }
 
-  // Local storage listener fallback
-  const handleUpdate = () => {
-    callback(getAllMergedUsers([]));
-  };
-
+  // ALWAYS listen to local storage & presence events for immediate same-device / multi-tab updates
   window.addEventListener('storage', handleUpdate);
   window.addEventListener('circuitlab-presence-update', handleUpdate);
 
-  // Initial call
-  callback(getAllMergedUsers([]));
+  // Periodic heartbeat timer (every 5 seconds) to refresh online/offline status live
+  const timer = window.setInterval(handleUpdate, 5000);
+
+  // Trigger initial fetch
+  fetchAllFirebaseUsers().then(callback).catch(() => {
+    callback(getAllMergedUsers([]));
+  });
 
   return () => {
+    if (firestoreUnsubscribe) firestoreUnsubscribe();
     window.removeEventListener('storage', handleUpdate);
     window.removeEventListener('circuitlab-presence-update', handleUpdate);
+    window.clearInterval(timer);
   };
 }
 
@@ -636,7 +640,7 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
     email: 'sirindevassia@gmail.com',
     photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocJY6BUEdd7Aff2oPxYDhy2rhw3oYcaqpJafCRqU7E5aFC7WR6c=s96-c',
     role: 'user',
-    status: 'online',
+    status: 'offline',
     authProvider: 'google',
     createdAt: 1790960976872,
     lastSeen: 1790961293629,
@@ -648,7 +652,7 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
     email: '2020narasimham25@gmail.com',
     photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocJa5yrYf9rxfdwT8WJGJzI_8jgZsGmm_nQnHPCEDJWNM0pCaRc=s96-c',
     role: 'user',
-    status: 'online',
+    status: 'offline',
     authProvider: 'google',
     createdAt: 1790960868759,
     lastSeen: 1790960868759,
@@ -660,7 +664,7 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
     email: '25bb17346@rit.ac.in',
     photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocKFTv6gP5Mf8nahDYUBvEA-f6-wMcB7LlRNslIZp1D4Kc1ci9Q=s96-c',
     role: 'user',
-    status: 'online',
+    status: 'offline',
     authProvider: 'google',
     createdAt: 1790963640546,
     lastSeen: 1790963640547,
@@ -672,7 +676,7 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
     email: 'bhagathkrishnan06@gmail.com',
     photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocI4jkINOK5sWHL6SxmDmeytDqihd4KMRKm84UKhQuUR-4EtR-4=s96-c',
     role: 'admin',
-    status: 'online',
+    status: 'offline',
     authProvider: 'google',
     createdAt: 1790959812787,
     lastSeen: 1790963656813,
@@ -684,10 +688,10 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
     email: 'bhagathkrishnan952@gmail.com',
     photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
     role: 'admin',
-    status: 'online',
+    status: 'offline',
     authProvider: 'google',
     createdAt: 1790959812787,
-    lastSeen: Date.now(),
+    lastSeen: 1790963656813,
     browserInfo: 'Chrome • Windows (Admin)',
   },
 ];
@@ -717,7 +721,7 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     });
   }
 
-  // 2. Both Authorized Administrator accounts
+  // 3. Both Authorized Administrator accounts
   for (const adminEmail of AUTHORIZED_ADMIN_EMAILS) {
     const key = adminEmail.toLowerCase();
     const existing = userMap.get(key);
@@ -727,15 +731,15 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
       email: adminEmail,
       photoURL: existing?.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
       role: 'admin',
-      status: existing?.status || 'online',
-      lastSeen: existing?.lastSeen || now - 1000 * 30,
+      status: existing?.status || 'offline',
+      lastSeen: existing?.lastSeen || 1790963656813,
       authProvider: 'google',
       browserInfo: existing?.browserInfo || 'Chrome • Windows (Admin)',
       activeProject: existing?.activeProject,
     });
   }
 
-  // 3. Stored active presence entries from localStorage (non-dummy)
+  // 4. Stored active presence entries from localStorage (non-dummy)
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
     if (raw) {
@@ -751,7 +755,7 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     console.warn('Error reading STORAGE_KEY_LOCAL_USERS:', e);
   }
 
-  // 4. Any locally registered accounts
+  // 5. Any locally registered accounts
   for (const reg of getRegisteredUsers()) {
     if (isDummyUser(reg)) continue;
     const key = reg.email.toLowerCase();
@@ -771,11 +775,15 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     });
   }
 
-  // 5. Currently logged-in user session
+  // 6. Currently logged-in user session in this browser
+  let currentUid: string | undefined = undefined;
+  let currentEmail: string | undefined = undefined;
   try {
     const currentSim = getSimulatedUser();
     if (currentSim && currentSim.email && !isDummyUser(currentSim)) {
-      const key = currentSim.email.toLowerCase();
+      currentUid = currentSim.uid;
+      currentEmail = currentSim.email.toLowerCase();
+      const key = currentEmail;
       const existing = userMap.get(key);
       const isAdminCalculated = checkIsAdmin(currentSim.email);
       userMap.set(key, {
@@ -793,6 +801,30 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     }
   } catch {}
 
+  // 7. Precise Real-Time Status Calculation (active in last 120s = online, else offline)
+  for (const [key, u] of userMap.entries()) {
+    const isCurrentActiveSession =
+      (currentUid && u.uid === currentUid) ||
+      (currentEmail && u.email && u.email.toLowerCase() === currentEmail);
+
+    if (isCurrentActiveSession) {
+      u.status = 'online';
+      u.lastSeen = now;
+      continue;
+    }
+
+    if (u.status === 'offline') {
+      continue;
+    }
+
+    const lastSeenTime = u.lastSeen || u.createdAt || 0;
+    if (now - lastSeenTime <= 120000) {
+      u.status = 'online';
+    } else {
+      u.status = 'offline';
+    }
+  }
+
   // Sort: Online first, then Admins, then by lastSeen descending
   const list = Array.from(userMap.values());
   list.sort((a, b) => {
@@ -809,6 +841,47 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
 export function getLocalActiveUsers(): UserPresence[] {
   cleanupDummyUsers();
   return getAllMergedUsers([]);
+}
+
+// ─── Firestore Admin Messages Persistence Helpers ───────────────────────────
+
+export async function fetchFirestoreAdminMessages(): Promise<any[]> {
+  if (!db || !isConfigured) return [];
+  try {
+    const colRef = collection(db, 'admin_messages');
+    const snap = await getDocs(colRef);
+    const list: any[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (!data.deleted && data.active !== false) {
+        list.push({ id: docSnap.id, ...data });
+      }
+    });
+    return list;
+  } catch (err) {
+    console.debug('Failed to fetch admin messages from Firestore:', err);
+    return [];
+  }
+}
+
+export async function saveFirestoreAdminMessage(msg: any): Promise<void> {
+  if (!db || !isConfigured) return;
+  try {
+    const docRef = doc(db, 'admin_messages', msg.id);
+    await setDoc(docRef, msg, { merge: true });
+  } catch (err) {
+    console.warn('Failed to save admin message to Firestore:', err);
+  }
+}
+
+export async function deleteFirestoreAdminMessage(id: string): Promise<void> {
+  if (!db || !isConfigured) return;
+  try {
+    const docRef = doc(db, 'admin_messages', id);
+    await setDoc(docRef, { deleted: true, active: false }, { merge: true });
+  } catch (err) {
+    console.warn('Failed to delete admin message from Firestore:', err);
+  }
 }
 
 // Watch auth state changes from Firebase

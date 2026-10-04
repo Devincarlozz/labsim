@@ -56,8 +56,8 @@ export function TopDAQPanel() {
   const { editor, wires } = state;
 
   // DAQ Hardware Activation "ON" state and DIO bit values from store
-  const daqOn = state.instruments.daq?.enabled ?? true;
-  const dioBits = state.instruments.daq?.dioBits ?? [1, 0, 1, 1, 0, 0, 1, 0];
+  const daqOn = (state.instruments.daq?.enabled !== false) && (state.simulation.status === 'running');
+  const dioBits = state.instruments.daq?.dioBits ?? [0, 0, 0, 0, 0, 0, 0, 0];
   const dioDirections = state.instruments.daq?.dioDirection ?? [true, true, true, true, false, false, false, false];
 
   // Hovered terminal
@@ -153,11 +153,13 @@ export function TopDAQPanel() {
     const isInput = isDio && dioIndex >= 0 && dioDirections[dioIndex] === false;
 
     let currentBit = 0;
-    if (isDio && dioIndex >= 0) {
+    if (isDio && dioIndex >= 0 && daqOn) {
       if (isInput) {
+        // Only show HIGH if snapshot explicitly reads 1 (not 'Z' or 'X')
         currentBit = snapshot.daq.di[dioIndex] === 1 ? 1 : 0;
       } else {
-        currentBit = (snapshot.daq.do[dioIndex] === 1 || dioBits[dioIndex] === 1) ? 1 : 0;
+        // For outputs, use the store's dioBits as the source of truth
+        currentBit = dioBits[dioIndex] === 1 ? 1 : 0;
       }
     }
 

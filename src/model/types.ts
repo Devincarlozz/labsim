@@ -47,14 +47,31 @@ export interface BreadboardModel {
 
 // ─── Component Definitions ───────────────────────────────────────────────────
 
-export type ComponentType = 'ic' | 'resistor' | 'capacitor' | 'dac' | 'led';
+export type ComponentType = 'ic' | 'resistor' | 'capacitor' | 'dac' | 'led' | 'diode';
 
-export type ICType = '74HC00' | '74HC02' | '74HC04' | '74HC08' | '74HC32' | '74HC86' | '74HC74' | '7400' | '7402' | '7404' | '7408' | '7432' | '7486' | '7474' | 'NE555';
+export type ICType =
+  | '74HC00'
+  | '74HC02'
+  | '74HC04'
+  | '74HC08'
+  | '74HC32'
+  | '74HC86'
+  | '74HC74'
+  | '7400'
+  | '7402'
+  | '7404'
+  | '7408'
+  | '7432'
+  | '7486'
+  | '7474'
+  | 'NE555'
+  | 'LM741'
+  | '741';
 
 export interface ICGateInfo {
   type: ICType;
   name: string;
-  gateFunction: 'NAND' | 'NOR' | 'NOT' | 'AND' | 'OR' | 'XOR' | 'D-FF' | 'TIMER';
+  gateFunction: 'NAND' | 'NOR' | 'NOT' | 'AND' | 'OR' | 'XOR' | 'D-FF' | 'TIMER' | 'OPAMP';
   pinCount: number;
   pinLabels: string[];
   gateCount: number;     // Number of gates in package (e.g., 4 for quad gates, 6 for hex inverter)
@@ -181,6 +198,22 @@ export const IC_LIBRARY: Record<ICType, ICGateInfo> = {
     pinLabels: ['/CLR1', 'D1', 'CLK1', '/PRE1', 'Q1', '/Q1', 'GND', '/Q2', 'Q2', '/PRE2', 'CLK2', 'D2', '/CLR2', 'VCC'],
     gateCount: 2,
   },
+  'LM741': {
+    type: 'LM741',
+    name: 'LM741 Operational Amplifier',
+    gateFunction: 'OPAMP',
+    pinCount: 8,
+    pinLabels: ['OFFSET1', 'IN-', 'IN+', 'V-', 'OFFSET2', 'OUT', 'V+', 'NC'],
+    gateCount: 1,
+  },
+  '741': {
+    type: '741',
+    name: '741 Operational Amplifier',
+    gateFunction: 'OPAMP',
+    pinCount: 8,
+    pinLabels: ['OFFSET1', 'IN-', 'IN+', 'V-', 'OFFSET2', 'OUT', 'V+', 'NC'],
+    gateCount: 1,
+  },
 };
 
 // ─── Component Instances ─────────────────────────────────────────────────────
@@ -243,7 +276,16 @@ export interface LEDComponent extends ComponentBase {
   illuminated?: boolean;   // Active illumination flag
 }
 
-export type CircuitComponent = ICComponent | ResistorComponent | CapacitorComponent | DACComponent | LEDComponent;
+export interface DiodeComponent extends ComponentBase {
+  type: 'diode';
+  model?: string;          // e.g. "1N4001"
+  forwardVoltage?: number; // 0.7V
+  reverseBreakdown?: number; // 50V
+  maxCurrent?: number;     // Rated forward current in Amps (1.0A for 1N4001)
+  conducting?: boolean;
+}
+
+export type CircuitComponent = ICComponent | ResistorComponent | CapacitorComponent | DACComponent | LEDComponent | DiodeComponent;
 
 // ─── Wires ───────────────────────────────────────────────────────────────────
 
@@ -318,6 +360,8 @@ export type EditorMode = 'select' | 'move' | 'wire' | 'place';
 export type PlacingComponent =
   | ComponentType
   | ICType
+  | '1N4001'
+  | 'IN4001'
   | 'led-red'
   | 'led-green'
   | 'led-blue'

@@ -32,9 +32,9 @@ export function BottomInstrumentSuite() {
   const { state, dispatch } = useStore();
   const daqActive = (state.instruments.daq?.enabled !== false) && (state.simulation.status === 'running');
 
-  // State for all 12 instrument windows (Scope open by default so user immediately sees oscilloscope)
+  // State for all 12 instrument windows (Scope false by default so it does not open automatically)
   const [openWindows, setOpenWindows] = useState<Record<InstrumentType, boolean>>({
-    Scope: true,
+    Scope: false,
     FGEN: false,
     DMM: false,
     VPS: false,

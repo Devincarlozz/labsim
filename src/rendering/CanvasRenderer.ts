@@ -9,6 +9,7 @@ import {
   CapacitorComponent,
   DACComponent,
   LEDComponent,
+  DiodeComponent,
   LEDColor,
   LogicState,
   IC_LIBRARY,
@@ -532,7 +533,7 @@ export class CanvasRenderer {
     };
 
     // DIO states matching current store pattern
-    const currentDioStates = daqSettings?.dioBits ?? [1, 0, 1, 1, 0, 0, 1, 0];
+    const currentDioStates = daqSettings?.dioBits ?? [0, 0, 0, 0, 0, 0, 0, 0];
 
     // 5. Draw 20 Terminal Cards
     for (const c of bb.contacts.values()) {
@@ -664,10 +665,11 @@ export class CanvasRenderer {
         // Digital 0 / 1 Logic State Pill
         const snap = simEngine.getSnapshot();
         const dioDirections = daqSettings?.dioDirection ?? [true, true, true, true, false, false, false, false];
+        const isDaqEnabled = daqSettings?.enabled !== false;
         const isInput = dioDirections[info.dioIdx] === false;
-        const bit = isInput
+        const bit = !isDaqEnabled ? 0 : isInput
           ? (snap.daq.di[info.dioIdx] === 1 ? 1 : 0)
-          : (snap.daq.do[info.dioIdx] === 1 || currentDioStates[info.dioIdx] === 1 ? 1 : 0);
+          : (currentDioStates[info.dioIdx] === 1 ? 1 : 0);
         const isHigh = bit === 1;
         const pillW = 10;
         const pillH = 7;
@@ -828,15 +830,16 @@ export class CanvasRenderer {
     const canvasY = (mousePos.y - offsetY) / scale;
 
     const col1X = BOARD_PADDING + 20; // 60
-    const is555 = placingComponent === 'NE555';
-    const isIC = ['74HC00', '74HC02', '74HC04', '74HC08', '74HC32', '74HC86', '74HC74', '7400', '7402', '7404', '7408', '7432', '7486', '7474', 'NE555'].includes(placingComponent as string);
+    const is8Pin = placingComponent === 'NE555' || placingComponent === 'LM741' || placingComponent === '741' || (placingComponent as string) === 'IC741';
+    const isIC = ['74HC00', '74HC02', '74HC04', '74HC08', '74HC32', '74HC86', '74HC74', '7400', '7402', '7404', '7408', '7432', '7486', '7474', 'NE555', 'LM741', '741', 'IC741'].includes(placingComponent as string);
+    const isDiode = placingComponent === 'diode' || placingComponent === '1N4001' || placingComponent === 'IN4001';
 
     let anchorPos: Point;
     const targetContacts: BreadboardContact[] = [];
 
     if (isIC) {
       const colIndex = Math.round((canvasX - col1X) / HOLE_SPACING);
-      const halfPins = is555 ? 4 : 7;
+      const halfPins = is8Pin ? 4 : 7;
       const clampedCol = Math.max(0, Math.min(TERMINAL_COLS - halfPins, colIndex));
       anchorPos = { x: col1X + clampedCol * HOLE_SPACING, y: 142 }; // Row E
 
@@ -863,7 +866,7 @@ export class CanvasRenderer {
       if (!closestC) return;
 
       const isLED = placingComponent === 'led' || (typeof placingComponent === 'string' && placingComponent.startsWith('led-'));
-      if (placingComponent === 'resistor') {
+      if (placingComponent === 'resistor' || isDiode) {
         const clampedCol = Math.max(1, Math.min(60, closestC.col));
         anchorPos = { x: col1X + (clampedCol - 1) * HOLE_SPACING, y: closestC.position.y };
         const h1 = closestC;
@@ -938,6 +941,16 @@ export class CanvasRenderer {
         pins: [],
         selected: false,
       }, false);
+    } else if (isDiode) {
+      this.drawDiode(ctx, {
+        id: 'preview',
+        type: 'diode',
+        position: anchorPos,
+        rotation: 0,
+        pins: [],
+        selected: false,
+        model: '1N4001',
+      } as DiodeComponent, false);
     } else if (placingComponent === 'capacitor') {
       this.drawCapacitor(ctx, {
         id: 'preview',
@@ -1161,6 +1174,7 @@ export class CanvasRenderer {
         case 'capacitor':this.drawCapacitor(ctx, comp as CapacitorComponent, sel); break;
         case 'dac':      this.drawDAC(ctx, comp as DACComponent, sel); break;
         case 'led':      this.drawLED(ctx, comp as LEDComponent, sel, nodes, physicsResult, isCircuitActive); break;
+        case 'diode':    this.drawDiode(ctx, comp as DiodeComponent, sel, physicsResult, isCircuitActive); break;
       }
       ctx.restore();
     }
@@ -1489,6 +1503,158 @@ export class CanvasRenderer {
       ctx.setLineDash([]);
       ctx.fillStyle = C.selFill;
       this.roundRect(ctx, -5, -bulbH / 2 - 4, span + 10, bulbH + 22, 5);
+      ctx.fill();
+    }
+  }
+
+  // ─── Diode (1N4001 DO-41 Silicon Rectifier Diode) ─────────────────────────
+
+  private drawDiode(
+    ctx: CanvasRenderingContext2D,
+    diode: DiodeComponent,
+    sel: boolean,
+    physicsResult?: CircuitPhysicsResult,
+    isCircuitActive: boolean = true,
+  ) {
+    const span = 56; // 4 breadboard columns = 56px exactly
+    const bodyW = 26; // DO-41 cylindrical body width
+    const bodyH = 11; // DO-41 height
+    const bodyX = (span - bodyW) / 2; // centered at x = 15 to 41
+    const bodyY = -bodyH / 2;
+
+    const dPhys = physicsResult?.diodes.get(diode.id);
+    const isConducting = isCircuitActive && (dPhys ? dPhys.isConducting : false);
+
+    // 1. Metallic Lead Wires (entering holes at (0, 0) and (span, 0))
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetY = 1.5;
+
+    const leadGrad = ctx.createLinearGradient(0, -1, 0, 1);
+    leadGrad.addColorStop(0, '#cbd5e1');
+    leadGrad.addColorStop(0.5, '#f8fafc');
+    leadGrad.addColorStop(1, '#64748b');
+
+    ctx.strokeStyle = leadGrad;
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+
+    // Left lead (Anode) from hole (0,0) to body (bodyX + 2, 0)
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(bodyX + 2, 0);
+    ctx.stroke();
+
+    // Right lead (Cathode) from body (bodyX + bodyW - 2, 0) to hole (span, 0)
+    ctx.beginPath();
+    ctx.moveTo(bodyX + bodyW - 2, 0);
+    ctx.lineTo(span, 0);
+    ctx.stroke();
+
+    // 2. Diode Body Drop Shadow
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.42)';
+    ctx.shadowBlur = 7;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2.5;
+
+    // 3. Cylindrical Body (DO-41 package: sleek matte black obsidian)
+    const bodyGrad = ctx.createLinearGradient(0, bodyY, 0, bodyY + bodyH);
+    bodyGrad.addColorStop(0, '#2d333b');
+    bodyGrad.addColorStop(0.2, '#1e232a');
+    bodyGrad.addColorStop(0.65, '#121519');
+    bodyGrad.addColorStop(1, '#0a0d10');
+    ctx.fillStyle = bodyGrad;
+
+    this.roundRect(ctx, bodyX, bodyY, bodyW, bodyH, 2.5);
+    ctx.fill();
+    ctx.restore();
+
+    // 4. Subtle body outline & specular highlight along upper crest
+    ctx.strokeStyle = '#383f4a';
+    ctx.lineWidth = 0.7;
+    this.roundRect(ctx, bodyX, bodyY, bodyW, bodyH, 2.5);
+    ctx.stroke();
+
+    // Upper specular sheen line
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1.0;
+    ctx.beginPath();
+    ctx.moveTo(bodyX + 2, bodyY + 1.8);
+    ctx.lineTo(bodyX + bodyW - 2, bodyY + 1.8);
+    ctx.stroke();
+    ctx.restore();
+
+    // 5. Silver Cathode Band Stripe (characteristic silver cathode ring near Pin 2 at the right end)
+    const bandW = 4.2;
+    const bandX = bodyX + bodyW - bandW - 2.5; // right side
+    const bandGrad = ctx.createLinearGradient(0, bodyY, 0, bodyY + bodyH);
+    bandGrad.addColorStop(0, '#f1f5f9');
+    bandGrad.addColorStop(0.3, '#cbd5e1');
+    bandGrad.addColorStop(0.7, '#94a3b8');
+    bandGrad.addColorStop(1, '#64748b');
+
+    ctx.fillStyle = bandGrad;
+    ctx.fillRect(bandX, bodyY + 0.5, bandW, bodyH - 1);
+
+    // Cathode band sheen
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(bandX, bodyY + 1.8);
+    ctx.lineTo(bandX + bandW, bodyY + 1.8);
+    ctx.stroke();
+
+    // 6. Model Text ("1N4001" printed in crisp white micro-font)
+    ctx.save();
+    ctx.font = '700 6px "JetBrains Mono", monospace';
+    ctx.fillStyle = isConducting ? '#38bdf8' : '#e2e8f0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetY = 0.5;
+    ctx.fillText(diode.model || '1N4001', bodyX + (bodyW - bandW) / 2 + 1, 0.5);
+    ctx.restore();
+
+    // 7. Dynamic Conduction Glow Accent when forward biased & conducting!
+    if (isConducting) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bandX + bandW / 2, 0, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.7)';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 6;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 8. Lead hole contact dots
+    for (const px of [0, span]) {
+      ctx.beginPath();
+      ctx.arc(px, 0, 1.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#64748b';
+      ctx.fill();
+    }
+
+    // 9. Label below
+    ctx.font = '600 8px "Inter", "JetBrains Mono", sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(diode.label || diode.model || '1N4001', span / 2, bodyH / 2 + 5);
+
+    // 10. Selection Outline
+    if (sel) {
+      ctx.strokeStyle = C.selBorder;
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([5, 3]);
+      this.roundRect(ctx, -5, bodyY - 4, span + 10, bodyH + 20, 5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = C.selFill;
+      this.roundRect(ctx, -5, bodyY - 4, span + 10, bodyH + 20, 5);
       ctx.fill();
     }
   }
@@ -2175,7 +2341,8 @@ export class CanvasRenderer {
           maxY = 28 + m;
           break;
         }
-        case 'resistor': {
+        case 'resistor':
+        case 'diode': {
           const totalW = 56;
           minX = -m;
           maxX = totalW + m;
@@ -2217,12 +2384,31 @@ export class CanvasRenderer {
     return null;
   }
 
-  hitTestWire(wires: Map<WireId, Wire>, bb: BreadboardModel, cx: number, cy: number, threshold = 6): WireId | null {
+  hitTestWire(wires: Map<WireId, Wire>, bb: BreadboardModel, cx: number, cy: number, threshold = 10): WireId | null {
     for (const wire of wires.values()) {
       const s = bb.contacts.get(wire.startContactId);
       const e = bb.contacts.get(wire.endContactId);
       if (!s || !e) continue;
-      if (this.ptSegDist(cx, cy, s.position.x, s.position.y, e.position.x, e.position.y) < threshold) {
+      const sp = s.position;
+      const ep = e.position;
+      const dx = ep.x - sp.x;
+      const dy = ep.y - sp.y;
+
+      let d1 = Infinity, d2 = Infinity, d3 = Infinity;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        const mx = sp.x + dx / 2;
+        d1 = this.ptSegDist(cx, cy, sp.x, sp.y, mx, sp.y);
+        d2 = this.ptSegDist(cx, cy, mx, sp.y, mx, ep.y);
+        d3 = this.ptSegDist(cx, cy, mx, ep.y, ep.x, ep.y);
+      } else {
+        const my = sp.y + dy / 2;
+        d1 = this.ptSegDist(cx, cy, sp.x, sp.y, sp.x, my);
+        d2 = this.ptSegDist(cx, cy, sp.x, my, ep.x, my);
+        d3 = this.ptSegDist(cx, cy, ep.x, my, ep.x, ep.y);
+      }
+
+      const minD = Math.min(d1, d2, d3, this.ptSegDist(cx, cy, sp.x, sp.y, ep.x, ep.y));
+      if (minD < threshold) {
         return wire.id;
       }
     }

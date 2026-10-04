@@ -4,7 +4,7 @@ import { ICType, PlacingComponent } from '../model/types';
 
 interface ComponentItem {
   id: string;
-  category: 'resistors' | 'capacitors' | 'leds' | 'logic' | 'hardware';
+  category: 'resistors' | 'capacitors' | 'diodes' | 'leds' | 'logic' | 'hardware';
   categoryLabel: string;
   name: string;
   label: string;
@@ -46,6 +46,17 @@ const ALL_COMPONENTS: ComponentItem[] = [
     desc: '5mm Through-Hole LED with configurable color, forward voltage & glow',
     keywords: ['led', 'light', 'diode', '5mm', 'indicator', 'optics', 'glow', 'red', 'green', 'blue', 'yellow', 'white', 'purple', 'orange'],
     placingType: 'led',
+  },
+  // Diodes
+  {
+    id: 'comp-diode-1n4001',
+    category: 'diodes',
+    categoryLabel: 'Diodes',
+    name: '1N4001',
+    label: '1N4001 Silicon Rectifier Diode',
+    desc: '1A 50V general-purpose silicon rectifier diode (DO-41)',
+    keywords: ['diode', '1n4001', 'in4001', 'in-4001', '1n-4001', 'in 4001', '1n 4001', 'in4001 diode', '1n4001 diode', 'diode 1n4001', 'rectifier', 'silicon', 'do-41', 'do41', '1a', '50v', 'bridge', 'pn junction', 'passive'],
+    placingType: '1N4001',
   },
   // ICs (74HC Series)
   {
@@ -118,6 +129,16 @@ const ALL_COMPONENTS: ComponentItem[] = [
     keywords: ['ne555', '555', 'timer', 'oscillator', 'pulse', 'astable', 'monostable', 'ic', 'chip', 'dip8', 'dip-8', 'clock', '555 timer'],
     placingType: 'NE555',
   },
+  {
+    id: 'comp-741',
+    category: 'logic',
+    categoryLabel: 'ICs',
+    name: 'LM741',
+    label: 'LM741 / IC 741 Operational Amplifier',
+    desc: 'General-purpose single operational amplifier (DIP-8)',
+    keywords: ['741', 'ic 741', 'ic741', '741 ic', 'ic-741', '741-ic', 'ic 741 op amp', '741 opamp', 'lm741', 'ua741', 'opamp', 'op-amp', 'operational amplifier', 'analog', 'ic', 'chip', 'dip8', 'dip-8', 'inverting', 'non-inverting', 'comparator'],
+    placingType: 'LM741',
+  },
   // Hardware & DAQ
   {
     id: 'comp-mydaq',
@@ -140,55 +161,94 @@ export function ComponentPalette({ onToggle }: ComponentPaletteProps) {
   const { editor } = state;
 
   const [searchQuery, setSearchQuery] = useState('');
-  // All 4 sections collapsed by default (matches user reference image)
-  const [resistorsOpen, setResistorsOpen] = useState(false);
-  const [capacitorsOpen, setCapacitorsOpen] = useState(false);
-  const [ledsOpen, setLedsOpen] = useState(false);
-  const [logicOpen, setLogicOpen] = useState(false);
+  // Common sections expanded by default so components are immediately discoverable
+  const [resistorsOpen, setResistorsOpen] = useState(true);
+  const [capacitorsOpen, setCapacitorsOpen] = useState(true);
+  const [ledsOpen, setLedsOpen] = useState(true);
+  const [diodesOpen, setDiodesOpen] = useState(true);
+  const [logicOpen, setLogicOpen] = useState(true);
   const [hardwareOpen, setHardwareOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const isDaqVisible = state.instruments.daq?.visible !== false;
 
-  // Filter components with smart IC number matching (e.g., "7400" matches "74HC00")
+  // Filter components with smart token-based matching and alias recognition (e.g. "in4001 diode", "ic 741", "7400")
   const filteredComponents = useMemo(() => {
     const rawQ = searchQuery.trim().toLowerCase();
     if (!rawQ) return ALL_COMPONENTS;
 
-    // Digits sequence only (e.g. "7400", "7408", "74")
-    const queryDigits = rawQ.replace(/\D/g, '');
+    const tokens = rawQ.split(/\s+/).filter(Boolean);
 
     // Normalize string by stripping letters sandwiched between numbers (e.g. "74HC00" -> "7400")
     const normalizeIc = (s: string) =>
       s.toLowerCase().replace(/(\d+)[a-z]+(\d+)/g, '$1$2').replace(/[^a-z0-9]/g, '');
 
-    const normQ = normalizeIc(rawQ);
-
     return ALL_COMPONENTS.filter((item) => {
-      // 1. Direct standard text search across name, label, description, and keywords
-      const matchName = item.name.toLowerCase().includes(rawQ);
-      const matchLabel = item.label.toLowerCase().includes(rawQ);
-      const matchDesc = item.desc.toLowerCase().includes(rawQ);
-      const matchKeywords = item.keywords.some((k) => k.toLowerCase().includes(rawQ));
-      if (matchName || matchLabel || matchDesc || matchKeywords) return true;
+      const itemName = item.name.toLowerCase();
+      const itemLabel = item.label.toLowerCase();
+      const itemDesc = item.desc.toLowerCase();
+      const itemCat = item.category.toLowerCase();
+      const itemCatLabel = item.categoryLabel.toLowerCase();
+      const itemKeywords = item.keywords.map((k) => k.toLowerCase());
+      const normName = normalizeIc(item.name);
+      const normLabel = normalizeIc(item.label);
+      const itemDigits = item.name.replace(/\D/g, '');
 
-      // 2. Pure digits search for ICs: typing "7400" matches "74HC00", "7408" matches "74HC08"
-      if (queryDigits.length >= 2) {
-        const itemDigits = item.name.replace(/\D/g, '');
-        if (itemDigits.includes(queryDigits)) return true;
+      return tokens.every((tok) => {
+        // Direct match
+        if (
+          itemName.includes(tok) ||
+          itemLabel.includes(tok) ||
+          itemDesc.includes(tok) ||
+          itemCat.includes(tok) ||
+          itemCatLabel.includes(tok) ||
+          itemKeywords.some((k) => k.includes(tok))
+        ) {
+          return true;
+        }
 
-        const labelDigits = item.label.replace(/\D/g, '');
-        if (labelDigits.includes(queryDigits)) return true;
-      }
+        // 1N4001 alias (in4001 <-> 1n4001)
+        if (
+          (tok === 'in4001' || tok === 'in-4001' || tok === '1n4001' || tok === '1n-4001' || tok === 'in4001diode') &&
+          (item.id.includes('1n4001') || item.placingType === '1N4001')
+        ) {
+          return true;
+        }
 
-      // 3. Letters-between-numbers insensitive search (e.g. "7400" matches "74HC00" or "74HCT00")
-      if (normQ.length >= 2) {
-        const normName = normalizeIc(item.name);
-        const normLabel = normalizeIc(item.label);
-        if (normName.includes(normQ) || normLabel.includes(normQ)) return true;
-      }
+        // 741 / IC 741 alias
+        if (
+          (tok === '741' || tok === 'ic741' || tok === 'lm741' || tok === 'opamp' || tok === 'op-amp') &&
+          (item.id.includes('741') || item.placingType === 'LM741')
+        ) {
+          return true;
+        }
 
-      return false;
+        // Generic 'ic' token matches logic category
+        if (tok === 'ic' || tok === 'chip') {
+          if (item.category === 'logic') return true;
+        }
+
+        // Generic 'diode' token matches diodes and LEDs
+        if (tok === 'diode') {
+          if (item.category === 'diodes' || item.category === 'leds') return true;
+        }
+
+        // Pure digits match (e.g. "08", "7408", "7400", "741", "555")
+        const digitsOnly = tok.replace(/\D/g, '');
+        if (digitsOnly.length >= 2) {
+          if (itemDigits.includes(digitsOnly)) return true;
+          const labelDigits = item.label.replace(/\D/g, '');
+          if (labelDigits.includes(digitsOnly)) return true;
+        }
+
+        // Normalized IC match
+        const normTok = normalizeIc(tok);
+        if (normTok.length >= 2 && (normName.includes(normTok) || normLabel.includes(normTok))) {
+          return true;
+        }
+
+        return false;
+      });
     });
   }, [searchQuery]);
 
@@ -198,6 +258,7 @@ export function ComponentPalette({ onToggle }: ComponentPaletteProps) {
   const resistorItems = filteredComponents.filter((c) => c.category === 'resistors');
   const capacitorItems = filteredComponents.filter((c) => c.category === 'capacitors');
   const ledItems = filteredComponents.filter((c) => c.category === 'leds');
+  const diodeItems = filteredComponents.filter((c) => c.category === 'diodes');
   const logicItems = filteredComponents.filter((c) => c.category === 'logic');
   const hardwareItems = filteredComponents.filter((c) => c.category === 'hardware');
 
@@ -550,6 +611,68 @@ export function ComponentPalette({ onToggle }: ComponentPaletteProps) {
               </div>
             )}
 
+            {/* Category: Diodes (1N4001 etc.) */}
+            {diodeItems.length > 0 && (
+              <div className="sidebar-section">
+                <div
+                  className="section-header"
+                  onClick={() => setDiodesOpen(!diodesOpen)}
+                >
+                  <div className="section-title-wrap">
+                    <span className="section-title">Diodes</span>
+                    <span className="section-count-badge">Rectifier</span>
+                  </div>
+                  <svg
+                    className={`collapse-chevron ${diodesOpen || (hasSearch && diodeItems.length > 0) ? 'open' : ''}`}
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#64748B"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="18 15 12 9 6 15" />
+                  </svg>
+                </div>
+
+                {(diodesOpen || (hasSearch && diodeItems.length > 0)) && (
+                  <div className="breadboard-parts-grid">
+                    {diodeItems.map((item) => {
+                      const isArmed = editor.placingComponent === item.placingType;
+                      return (
+                        <div
+                          key={item.id}
+                          className={`part-card ${isArmed ? 'active' : ''}`}
+                          onClick={() => handleSelectPlacing(item.placingType)}
+                          title={`${item.label} — Click once to place on breadboard`}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div className="part-card-preview">
+                            <svg width="60" height="24" viewBox="0 0 60 24">
+                              {/* Anode lead */}
+                              <line x1="2" y1="12" x2="16" y2="12" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
+                              {/* Diode body */}
+                              <rect x="16" y="5" width="28" height="14" rx="3" fill="#1E293B" stroke="#0F172A" strokeWidth="0.8" />
+                              {/* Cathode band */}
+                              <rect x="38" y="5" width="4" height="14" rx="0.5" fill="#94A3B8" />
+                              {/* Cathode lead */}
+                              <line x1="44" y1="12" x2="58" y2="12" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
+                            </svg>
+                          </div>
+                          <span className="part-card-label">{item.name}</span>
+                          <span className="part-card-sublabel">Rectifier DO-41</span>
+                          {isArmed && <span className="part-card-armed-tag">Click board</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Category 3: Logic Gates (74HC Series) — Classified in Single Section */}
             {logicItems.length > 0 && (
               <div className="sidebar-section">
@@ -559,7 +682,7 @@ export function ComponentPalette({ onToggle }: ComponentPaletteProps) {
                 >
                   <div className="section-title-wrap">
                     <span className="section-title">ICs</span>
-                    <span className="section-count-badge logic">74HC DIP-14</span>
+                    <span className="section-count-badge logic">DIP-14 & DIP-8</span>
                   </div>
                   <svg
                     className={`collapse-chevron ${logicOpen || (hasSearch && logicItems.length > 0) ? 'open' : ''}`}
@@ -597,7 +720,7 @@ export function ComponentPalette({ onToggle }: ComponentPaletteProps) {
                             </div>
                           </div>
                           <div className="ic-card-info">
-                            <span className="ic-card-part">{item.name}</span>
+                            <span className="ic-card-part">{item.name === 'LM741' ? 'LM741 (IC 741)' : item.name}</span>
                             <span className="ic-card-desc">
                               {item.name === '74HC08' ? 'Quad AND' :
                                item.name === '74HC00' ? 'Quad NAND' :
@@ -605,7 +728,8 @@ export function ComponentPalette({ onToggle }: ComponentPaletteProps) {
                                item.name === '74HC04' ? 'Hex Invert' :
                                item.name === '74HC32' ? 'Quad OR' :
                                item.name === '74HC86' ? 'Quad XOR' :
-                               item.name === 'NE555' ? 'Timer (DIP-8)' : 'Logic IC'}
+                               item.name === 'NE555' ? 'Timer (DIP-8)' :
+                               item.name === 'LM741' ? 'Op-Amp (DIP-8)' : 'Logic IC'}
                             </span>
                           </div>
                           {isArmed && <span className="ic-card-armed-tag">Click board</span>}

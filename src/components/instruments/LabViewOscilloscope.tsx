@@ -43,11 +43,23 @@ export function LabViewOscilloscope() {
   const [measCh0, setMeasCh0] = useState(true);
   const [measCh1, setMeasCh1] = useState(false);
 
-  // Instrument Control
   const [device, setDevice] = useState('Dev1 (NI myDAQ)');
   const [acqMode, setAcqMode] = useState('Run Continuously');
-  const [isRunning, setIsRunning] = useState(true);
+  const [isRunning, setIsRunning] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
+
+  // Toggle Run / Stop handler
+  const handleToggleRun = () => {
+    const nextRunning = !isRunning;
+    setIsRunning(nextRunning);
+    if (nextRunning) {
+      if (state.simulation.status !== 'running' || state.instruments.daq?.enabled === false) {
+        dispatch({ type: 'RUN_SIMULATION' });
+        dispatch({ type: 'UPDATE_DAQ', settings: { enabled: true } });
+        window.dispatchEvent(new CustomEvent('daq-power-change', { detail: { enabled: true } }));
+      }
+    }
+  };
 
   // Live measurements
   const [measRms, setMeasRms] = useState('0.00 mV');
@@ -68,6 +80,8 @@ export function LabViewOscilloscope() {
   const lastCanvasSizeRef = useRef({ w: 0, h: 0 });
   const measFrameCounter = useRef(0);
   const lastMeasRef = useRef({ rms: '', freq: '', vpp: '' });
+  const animPhaseRef = useRef(0);
+  const lastFrameTimeRef = useRef(performance.now());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -146,28 +160,38 @@ export function LabViewOscilloscope() {
       ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
 
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - lastFrameTimeRef.current) / 1000);
+      lastFrameTimeRef.current = now;
+
       const snap = simEngine.getSnapshot();
       const isDaqRunning = isRunning && snap.daqState === 'RUNNING';
 
+      if (isRunning && isDaqRunning) {
+        // Move wave across screen at steady rate (1.5 cycles per second)
+        animPhaseRef.current += dt * 1.5;
+      }
+
       // Check if channels are actively wired or connected to live sources
+      const ch0Contact = ch0Source === 'AO 0' ? 'daq-ao0' : ch0Source === 'AI 1' ? 'daq-ai1_p' : 'daq-ai0_p';
+      const ch1Contact = ch1Source === 'AO 0' ? 'daq-ao0' : ch1Source === 'AI 0' ? 'daq-ai0_p' : 'daq-ai1_p';
+
+      const ch0Sig = getDaqSignal(ch0Contact, state, now / 1000);
+      const ch1Sig = getDaqSignal(ch1Contact, state, now / 1000);
+
       const isCh0Connected = ch0Source === 'AO 0'
         ? (snap.daqState === 'RUNNING' && Boolean(snap.daq.ao0_buffer))
-        : ch0Source === 'AI 1'
-        ? Boolean(snap.daq.isAi1Connected)
-        : Boolean(snap.daq.isAi0Connected);
+        : ch0Sig.type !== 'open' || Boolean(snap.daq.isAi0Connected);
 
-      const isCh1Connected = ch1Source === 'AO 1'
+      const isCh1Connected = ch1Source === 'AO 0'
         ? false
-        : ch1Source === 'AI 0'
-        ? Boolean(snap.daq.isAi0Connected)
-        : Boolean(snap.daq.isAi1Connected);
+        : ch1Sig.type !== 'open' || Boolean(snap.daq.isAi1Connected);
 
       // Resolve Channel 0 & Channel 1 source buffers from DAQ
       const getSourceBuffer = (src: string, isConn: boolean): number[] => {
         if (!isDaqRunning || !isConn) return new Array(1000).fill(0);
         if (src === 'AI 1') return snap.daq.ai1;
         if (src === 'AO 0') {
-          // Linearized AO0 high-resolution signal based on FGEN buffer/voltage
           if (snap.daq.ao0_buffer && snap.daq.ao0_buffer.length === 1000) {
             return snap.daq.ao0_buffer;
           }
@@ -182,15 +206,15 @@ export function LabViewOscilloscope() {
 
       // On-screen Phosphor Channel Status
       const ch0Desc = !isDaqRunning
-        ? 'myDAQ Power is OFF (Click Run to start)'
+        ? (!isRunning ? 'Scope Stopped (Toggle Run to start)' : 'myDAQ Power is OFF (Turn on DAQ)')
         : !isCh0Connected
         ? `${ch0Source} (Disconnected / 0.00 V)`
-        : `${ch0Source} Active (10 kS/s ADC)`;
+        : `${ch0Source} Active (${ch0Sig.type === 'ac' ? `${ch0Sig.freq.toFixed(0)} Hz ${(ch0Sig.waveform || 'AC').toUpperCase()}` : 'DC 10 kS/s'})`;
       const ch1Desc = !isDaqRunning
-        ? 'myDAQ Power is OFF (Click Run to start)'
+        ? (!isRunning ? 'Scope Stopped (Toggle Run to start)' : 'myDAQ Power is OFF (Turn on DAQ)')
         : !isCh1Connected
         ? `${ch1Source} (Disconnected / 0.00 V)`
-        : `${ch1Source} Active (10 kS/s ADC)`;
+        : `${ch1Source} Active (${ch1Sig.type === 'ac' ? `${ch1Sig.freq.toFixed(0)} Hz ${(ch1Sig.waveform || 'AC').toUpperCase()}` : 'DC 10 kS/s'})`;
 
       ctx.font = '10px "JetBrains Mono", monospace';
       ctx.fillStyle = '#22C55E';
@@ -200,49 +224,36 @@ export function LabViewOscilloscope() {
         ctx.fillText(`CH1 (${ch1Source}): ${ch1Desc}`, 14, 34);
       }
 
-      // Update Live Measurements directly from buffer — debounced every 10 frames
+      // On-screen RUNNING / STOPPED Status Pill
+      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+      if (isDaqRunning) {
+        ctx.fillStyle = '#22C55E';
+        ctx.fillText('● RUNNING', w - 80, 20);
+      } else {
+        ctx.fillStyle = '#EF4444';
+        ctx.fillText('■ STOPPED', w - 80, 20);
+      }
+
+      // Update Live Measurements directly from signal physics — debounced every 6 frames
       measFrameCounter.current++;
-      if (measFrameCounter.current >= 10) {
+      if (measFrameCounter.current >= 6) {
         measFrameCounter.current = 0;
-        const activeBuf = measCh1 && ch1Enabled ? ch1Buf : ch0Buf;
+        const activeSig = measCh1 && ch1Enabled ? ch1Sig : ch0Sig;
         const activeConnected = measCh1 && ch1Enabled ? isCh1Connected : isCh0Connected;
         let newRms: string, newFreq: string, newVpp: string;
 
         if (!isDaqRunning || !activeConnected) {
           newRms = '0.00 mV'; newFreq = '0.000 Hz'; newVpp = '0.000 V';
+        } else if (activeSig.type === 'ac') {
+          newVpp = `${activeSig.vpp.toFixed(3)} V`;
+          newFreq = `${activeSig.freq.toFixed(3)} Hz`;
+          newRms = activeSig.rms >= 1.0 ? `${activeSig.rms.toFixed(2)} V` : `${(activeSig.rms * 1000).toFixed(1)} mV`;
+        } else if (activeSig.type === 'dc') {
+          newVpp = '0.000 V';
+          newFreq = '0.000 Hz';
+          newRms = Math.abs(activeSig.voltage) >= 1.0 ? `${Math.abs(activeSig.voltage).toFixed(2)} V` : `${(Math.abs(activeSig.voltage) * 1000).toFixed(1)} mV`;
         } else {
-          let minV = Infinity;
-          let maxV = -Infinity;
-          let sumSq = 0;
-          for (let i = 0; i < activeBuf.length; i++) {
-            const v = activeBuf[i];
-            if (v < minV) minV = v;
-            if (v > maxV) maxV = v;
-            sumSq += v * v;
-          }
-          const vpp = maxV - minV;
-          const rms = Math.sqrt(sumSq / activeBuf.length);
-
-          // Zero / mean-crossing frequency detection
-          const mean = (minV + maxV) / 2;
-          let crossings = 0;
-          for (let i = 1; i < activeBuf.length; i++) {
-            if (activeBuf[i - 1] < mean && activeBuf[i] >= mean) {
-              crossings++;
-            }
-          }
-          const sampleDurationSec = activeBuf.length / 10000;
-          const freq = crossings > 1 ? crossings / sampleDurationSec : 0;
-
-          if (vpp < 0.015) {
-            newRms = `${(Math.abs(mean) * 1000).toFixed(1)} mV`;
-            newFreq = '0.000 Hz';
-            newVpp = '0.000 V';
-          } else {
-            newRms = `${(rms * 1000).toFixed(2)} mV`;
-            newFreq = `${freq.toFixed(3)} Hz`;
-            newVpp = `${vpp.toFixed(3)} V`;
-          }
+          newRms = '0.00 mV'; newFreq = '0.000 Hz'; newVpp = '0.000 V';
         }
 
         const last = lastMeasRef.current;
@@ -283,19 +294,42 @@ export function LabViewOscilloscope() {
         ctx.shadowColor = '#22C55E';
         ctx.shadowBlur = 4;
 
-        // Mean for AC coupling
-        let ch0Mean = 0;
-        if (ch0Coupling === 'AC' && isDaqRunning) {
-          ch0Mean = ch0Buf.reduce((a, b) => a + b, 0) / ch0Buf.length;
-        }
+        const ch0Mean = (ch0Coupling === 'AC' && isDaqRunning) ? (ch0Sig.dcOffset ?? 0) : 0;
+        const driftPhase = isDaqRunning ? (animPhaseRef.current % 1) : 0;
 
         for (let i = 0; i < pts; i++) {
           const xFrac = i / (pts - 1);
           const timeAtPoint = (xFrac - horizPos / 100) * totalTime;
-          const sampleOffset = Math.round(timeAtPoint * 10000); // 10 kS/s
-          const rawIdx = trigIdx + sampleOffset;
-          const bufIdx = ((rawIdx % ch0Buf.length) + ch0Buf.length) % ch0Buf.length;
-          let val = isDaqRunning ? ch0Buf[bufIdx] - ch0Mean : 0;
+          let val = 0;
+
+          if (isDaqRunning && isCh0Connected) {
+            if (ch0Sig.type === 'ac') {
+              const period = 1 / Math.max(0.1, ch0Sig.freq);
+              const phase = ((timeAtPoint / period + driftPhase) % 1 + 1) % 1;
+              let v = ch0Sig.dcOffset ?? 0;
+              if (ch0Sig.sourceDescription?.includes('Rectified')) {
+                // Diode rectified half-wave: only positive alternation conducts
+                const sinVal = Math.sin(2 * Math.PI * phase);
+                v = Math.max(0, (ch0Sig.amplitude || 1) * sinVal);
+              } else if (ch0Sig.waveform === 'sine') {
+                v += ch0Sig.amplitude! * Math.sin(2 * Math.PI * phase);
+              } else if (ch0Sig.waveform === 'square') {
+                v += phase < 0.5 ? ch0Sig.amplitude! : -ch0Sig.amplitude!;
+              } else if (ch0Sig.waveform === 'triangle') {
+                v += (phase < 0.25 ? phase * 4 * ch0Sig.amplitude! : phase < 0.75 ? (2 - phase * 4) * ch0Sig.amplitude! : (phase * 4 - 4) * ch0Sig.amplitude!);
+              }
+              val = v - ch0Mean;
+            } else if (ch0Sig.type === 'dc') {
+              const traceJitter = isDaqRunning ? Math.sin(i * 0.4 + animPhaseRef.current * 8) * 0.0015 : 0;
+              val = ch0Sig.voltage - ch0Mean + traceJitter;
+            } else {
+              const animSampleOffset = isDaqRunning ? Math.round(animPhaseRef.current * 1000) : 0;
+              const rawIdx = trigIdx + Math.round(timeAtPoint * 10000) + animSampleOffset;
+              const bufIdx = ((rawIdx % ch0Buf.length) + ch0Buf.length) % ch0Buf.length;
+              val = ch0Buf[bufIdx] - (ch0Coupling === 'AC' ? (ch0Buf.reduce((a, b) => a + b, 0) / ch0Buf.length) : 0);
+            }
+          }
+
           if (ch0Probe === '10x') val *= 10;
 
           const x = xFrac * w;
@@ -317,18 +351,42 @@ export function LabViewOscilloscope() {
         ctx.shadowColor = '#06B6D4';
         ctx.shadowBlur = 4;
 
-        let ch1Mean = 0;
-        if (ch1Coupling === 'AC' && isDaqRunning) {
-          ch1Mean = ch1Buf.reduce((a, b) => a + b, 0) / ch1Buf.length;
-        }
+        const ch1Mean = (ch1Coupling === 'AC' && isDaqRunning) ? (ch1Sig.dcOffset ?? 0) : 0;
+        const driftPhase = isDaqRunning ? (animPhaseRef.current % 1) : 0;
 
         for (let i = 0; i < pts; i++) {
           const xFrac = i / (pts - 1);
           const timeAtPoint = (xFrac - horizPos / 100) * totalTime;
-          const sampleOffset = Math.round(timeAtPoint * 10000);
-          const rawIdx = trigIdx + sampleOffset;
-          const bufIdx = ((rawIdx % ch1Buf.length) + ch1Buf.length) % ch1Buf.length;
-          let val = isDaqRunning ? ch1Buf[bufIdx] - ch1Mean : 0;
+          let val = 0;
+
+          if (isDaqRunning && isCh1Connected) {
+            if (ch1Sig.type === 'ac') {
+              const period = 1 / Math.max(0.1, ch1Sig.freq);
+              const phase = ((timeAtPoint / period + driftPhase) % 1 + 1) % 1;
+              let v = ch1Sig.dcOffset ?? 0;
+              if (ch1Sig.sourceDescription?.includes('Rectified')) {
+                // Diode rectified half-wave: only positive alternation conducts
+                const sinVal = Math.sin(2 * Math.PI * phase);
+                v = Math.max(0, (ch1Sig.amplitude || 1) * sinVal);
+              } else if (ch1Sig.waveform === 'sine') {
+                v += ch1Sig.amplitude! * Math.sin(2 * Math.PI * phase);
+              } else if (ch1Sig.waveform === 'square') {
+                v += phase < 0.5 ? ch1Sig.amplitude! : -ch1Sig.amplitude!;
+              } else if (ch1Sig.waveform === 'triangle') {
+                v += (phase < 0.25 ? phase * 4 * ch1Sig.amplitude! : phase < 0.75 ? (2 - phase * 4) * ch1Sig.amplitude! : (phase * 4 - 4) * ch1Sig.amplitude!);
+              }
+              val = v - ch1Mean;
+            } else if (ch1Sig.type === 'dc') {
+              const traceJitter = isDaqRunning ? Math.sin(i * 0.4 + animPhaseRef.current * 8) * 0.0015 : 0;
+              val = ch1Sig.voltage - ch1Mean + traceJitter;
+            } else {
+              const animSampleOffset = isDaqRunning ? Math.round(animPhaseRef.current * 1000) : 0;
+              const rawIdx = trigIdx + Math.round(timeAtPoint * 10000) + animSampleOffset;
+              const bufIdx = ((rawIdx % ch1Buf.length) + ch1Buf.length) % ch1Buf.length;
+              val = ch1Buf[bufIdx] - (ch1Coupling === 'AC' ? (ch1Buf.reduce((a, b) => a + b, 0) / ch1Buf.length) : 0);
+            }
+          }
+
           if (ch1Probe === '10x') val *= 10;
 
           const x = xFrac * w;
@@ -366,9 +424,7 @@ export function LabViewOscilloscope() {
         ctx.fillText('C2', c2X + 4, 14);
       }
 
-      if (isRunning) {
-        frame = requestAnimationFrame(render);
-      }
+      frame = requestAnimationFrame(render);
     };
 
     render();
@@ -759,28 +815,21 @@ export function LabViewOscilloscope() {
 
                 <button
                   className={`scope-btn run-btn ${isRunning ? 'active' : ''}`}
-                  onClick={() => {
-                    setIsRunning(true);
-                    if (state.simulation.status !== 'running' || state.instruments.daq?.enabled === false) {
-                      dispatch({ type: 'RUN_SIMULATION' });
-                      dispatch({ type: 'UPDATE_DAQ', settings: { enabled: true } });
-                      window.dispatchEvent(new CustomEvent('daq-power-change', { detail: { enabled: true } }));
-                    }
-                  }}
-                  title="Run Acquisition & Start Simulation"
+                  onClick={handleToggleRun}
+                  title={isRunning ? "Acquisition Running (Click to Toggle Stop)" : "Toggle Run to Start Acquisition & Moving Wave"}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#10B981">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill={isRunning ? "#10B981" : "#64748B"}>
                     <polygon points="5 3 19 12 5 21 5 3" />
                   </svg>
-                  <span>Run</span>
+                  <span>{isRunning ? 'Running' : 'Run'}</span>
                 </button>
 
                 <button
                   className={`scope-btn stop-btn ${!isRunning ? 'active' : ''}`}
                   onClick={() => setIsRunning(false)}
-                  title="Stop Acquisition"
+                  title="Stop Acquisition & Freeze Waveform"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="#EF4444">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill={!isRunning ? "#EF4444" : "#64748B"}>
                     <rect x="4" y="4" width="16" height="16" />
                   </svg>
                   <span>Stop</span>

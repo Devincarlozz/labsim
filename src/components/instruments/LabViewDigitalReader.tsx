@@ -9,14 +9,20 @@ import {
   CascadeWindowIcon,
 } from './LabViewCommonIcons';
 
+import { useStore } from '../../store/CircuitStore';
+
 type LineRange = '0 - 7' | '0 - 3' | '4 - 7';
 type AcquisitionMode = 'Run Continuously' | '1 Shot';
 
 export function LabViewDigitalReader() {
+  const { state } = useStore();
   const { snapshot } = useSimEngine();
 
+  // Hardware DAQ power state from store
+  const isDaqHardwareOn = state.instruments.daq?.enabled !== false && state.simulation.status === 'running';
+
   // Settings
-  const [linesToRead, setLinesToRead] = useState<LineRange>('4 - 7'); // Default '4 - 7' as seen in Image 2
+  const [linesToRead, setLinesToRead] = useState<LineRange>('0 - 7'); // Default 0-7 so all active lines are accessible
   const [device, setDevice] = useState<string>('Dev1 (NI myDAQ)');
   const [acquisitionMode, setAcquisitionMode] = useState<AcquisitionMode>('Run Continuously');
   const [isRunning, setIsRunning] = useState<boolean>(true);
@@ -33,9 +39,9 @@ export function LabViewDigitalReader() {
     [linesToRead]
   );
 
-  // Deterministically computed from SimEngine snapshot - zero unneeded timers
+  // Deterministically computed from SimEngine snapshot - strictly all OFF when DAQ is not running/powered
   const readBits = useMemo(() => {
-    if (!isRunning || snapshot.daqState !== 'RUNNING') {
+    if (!isDaqHardwareOn || !isRunning || snapshot.daqState !== 'RUNNING') {
       return [false, false, false, false, false, false, false, false];
     }
     const sampled: boolean[] = [];
@@ -45,12 +51,12 @@ export function LabViewDigitalReader() {
         continue;
       }
       const diLvl = snapshot.daq.di[i];
-      const doLvl = snapshot.daq.do[i];
-      const isHigh = diLvl === 1 || (diLvl === 'Z' && doLvl === 1);
-      sampled.push(Boolean(isHigh));
+      // Only lit when DI receives digital HIGH (1)
+      const isHigh = diLvl === 1;
+      sampled.push(isHigh);
     }
     return sampled;
-  }, [isRunning, snapshot, isLineActive]);
+  }, [isDaqHardwareOn, isRunning, snapshot, isLineActive]);
 
   // Run handler
   const handleRun = () => {

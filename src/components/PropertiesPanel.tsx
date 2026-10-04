@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/CircuitStore';
-import { ICType, IC_LIBRARY, ICComponent, ResistorComponent, CapacitorComponent, LEDComponent, LEDColor } from '../model/types';
+import { ICType, IC_LIBRARY, ICComponent, ResistorComponent, CapacitorComponent, LEDComponent, LEDColor, DiodeComponent } from '../model/types';
 import { DAQ_PIN_METADATA } from '../model/breadboard';
 import { solveCircuitPhysics } from '../simulation/circuitPhysics';
 
@@ -205,6 +205,31 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
     }
   };
 
+  // Selected Diode info
+  const isDiode = selectedComp?.type === 'diode';
+  const diodeComp = isDiode ? (selectedComp as DiodeComponent) : null;
+  const currentDiodeModel = diodeComp?.model ?? '1N4001';
+  const currentDiodeVf = diodeComp?.forwardVoltage ?? 0.7;
+
+  // Handler for Diode changes
+  const handleDiodeChange = (updates: {
+    model?: string;
+    forwardVoltage?: number;
+    reverseBreakdown?: number;
+    maxCurrent?: number;
+  }) => {
+    if (diodeComp) {
+      dispatch({
+        type: 'UPDATE_DIODE',
+        id: diodeComp.id,
+        model: updates.model ?? diodeComp.model,
+        forwardVoltage: updates.forwardVoltage !== undefined ? updates.forwardVoltage : diodeComp.forwardVoltage,
+        reverseBreakdown: updates.reverseBreakdown !== undefined ? updates.reverseBreakdown : diodeComp.reverseBreakdown,
+        maxCurrent: updates.maxCurrent !== undefined ? updates.maxCurrent : diodeComp.maxCurrent,
+      });
+    }
+  };
+
   // Compile active connections for the dynamic Connection Log
   const wireEntries = Array.from(state.wires.values()).map((w, idx) => ({
     id: w.id,
@@ -356,6 +381,8 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
                       ? `Capacitor ${currentCapacitance} ${currentCapUnit}`
                       : isLED
                       ? `${currentLEDColor.toUpperCase()} LED`
+                      : isDiode
+                      ? `Diode ${currentDiodeModel} (Vf=${currentDiodeVf}V)`
                       : selectedComp ? selectedComp.type : 'Select an element on breadboard'}
                   </span>
                 </div>
@@ -386,6 +413,7 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
                       <option value="74HC32">74HC32 (Quad 2-Input OR)</option>
                       <option value="74HC86">74HC86 (Quad 2-Input XOR)</option>
                       <option value="NE555">NE555 (Precision Timer - DIP-8)</option>
+                      <option value="LM741">LM741 (Operational Amplifier - DIP-8)</option>
                     </select>
                     <svg className="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="6 9 12 15 18 9" />
@@ -861,113 +889,96 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
               </div>
             )}
 
-            {/* Live Physical Operating Point - Only for Resistors, Capacitors, and ICs */}
-            {selectedComp && selectedComp.type !== 'led' && (
-              <div className="prop-block physics-operating-point-block">
+            {/* 5. DEDICATED DIODE SECTION - Only when a diode is selected */}
+            {isDiode && (
+              <div className="prop-block active-component-block">
                 <div className="prop-block-header-row">
                   <div className="prop-title-with-icon">
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="6 4 18 12 6 20 6 4" fill="rgba(100, 116, 139, 0.25)" />
+                      <line x1="18" y1="4" x2="18" y2="20" stroke="#64748B" strokeWidth="2.5" />
+                      <line x1="2" y1="12" x2="6" y2="12" stroke="#64748B" strokeWidth="2" />
+                      <line x1="18" y1="12" x2="22" y2="12" stroke="#64748B" strokeWidth="2" />
                     </svg>
-                    <h3 className="prop-block-title">Circuit Physics Operating Point</h3>
+                    <h3 className="prop-block-title">Diode (Rectifier)</h3>
                   </div>
-                  <span className="prop-badge-active" style={{ background: '#FEF3C7', color: '#B45309', border: '1px solid #FCD34D' }}>
-                    Live Physics
+                  <span className="prop-badge-active diode">
+                    Selected ({diodeComp?.label || currentDiodeModel})
                   </span>
                 </div>
 
-                {selectedComp.type === 'resistor' && (() => {
-                  const r = physics.resistors.get(selectedComp.id);
-                  return (
-                    <div className="physics-stats-grid">
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Voltage Drop (ΔV)</span>
-                        <span className="stat-val">{r ? `${r.voltageDrop.toFixed(3)} V` : '0.000 V'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Current (I = V/R)</span>
-                        <span className="stat-val">{r ? `${r.currentMilliAmps.toFixed(2)} mA` : '0.00 mA'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Power Dissipated</span>
-                        <span className="stat-val">{r ? `${(r.powerWatts * 1000).toFixed(1)} mW` : '0.0 mW'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Thermal Rating</span>
-                        <span className="stat-val safe">250 mW (Normal)</span>
-                      </div>
-                    </div>
-                  );
-                })()}
+                {/* Realistic Diode DO-41 Package Preview Card */}
+                <div className="diode-preview-card" style={{ display: 'flex', alignItems: 'center', gap: '14px', background: '#0F172A', padding: '10px 14px', borderRadius: '8px', margin: '8px 0 12px' }}>
+                  <svg width="68" height="26" viewBox="0 0 68 26">
+                    {/* Anode Lead */}
+                    <line x1="4" y1="13" x2="18" y2="13" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
+                    {/* Diode body DO-41 */}
+                    <rect x="18" y="5" width="32" height="16" rx="3.5" fill="#1E293B" stroke="#334155" strokeWidth="1" />
+                    {/* Cathode silver band */}
+                    <rect x="42" y="5" width="5" height="16" rx="0.5" fill="#E2E8F0" />
+                    {/* Cathode Lead */}
+                    <line x1="50" y1="13" x2="64" y2="13" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                  <div>
+                    <div style={{ color: '#F8FAFC', fontWeight: 600, fontSize: '13px' }}>{currentDiodeModel}</div>
+                    <div style={{ color: '#94A3B8', fontSize: '11px' }}>Vf ≈ {currentDiodeVf}V (Cathode at Silver Band)</div>
+                  </div>
+                </div>
 
-                {selectedComp.type === 'capacitor' && (() => {
-                  const c = physics.capacitors.get(selectedComp.id);
-                  return (
-                    <div className="physics-stats-grid">
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Voltage Across Cap</span>
-                        <span className="stat-val">{c ? `${c.voltage.toFixed(3)} V` : '0.000 V'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Time Constant (τ)</span>
-                        <span className="stat-val">{c ? `${(c.tauSeconds * 1000).toFixed(2)} ms` : '---'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Cutoff Frequency (fc)</span>
-                        <span className="stat-val">{c ? (c.cutoffFreqHz >= 1000 ? `${(c.cutoffFreqHz / 1000).toFixed(2)} kHz` : `${c.cutoffFreqHz.toFixed(1)} Hz`) : '---'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">Filter Mode</span>
-                        <span className="stat-val">RC Filter</span>
-                      </div>
-                    </div>
-                  );
-                })()}
+                {/* Model Selector */}
+                <div className="prop-field">
+                  <label className="prop-field-label">Diode Model</label>
+                  <div className="select-wrapper">
+                    <select
+                      className="prop-select-field"
+                      value={currentDiodeModel}
+                      onChange={(e) => {
+                        const m = e.target.value;
+                        const vfMap: Record<string, number> = {
+                          '1N4001': 0.7,
+                          '1N4007': 0.7,
+                          '1N4148': 0.72,
+                          '1N5819 (Schottky)': 0.35,
+                        };
+                        handleDiodeChange({ model: m, forwardVoltage: vfMap[m] || 0.7 });
+                      }}
+                    >
+                      <option value="1N4001">1N4001 (50V 1A Silicon Rectifier)</option>
+                      <option value="1N4007">1N4007 (1000V 1A Silicon Rectifier)</option>
+                      <option value="1N4148">1N4148 (100V 300mA Fast Signal)</option>
+                      <option value="1N5819 (Schottky)">1N5819 (40V 1A Schottky Low-Vf)</option>
+                    </select>
+                    <svg className="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </div>
+                </div>
 
-                {selectedComp.type === 'ic' && (() => {
-                  const icComp = selectedComp as ICComponent;
-                  const ic = physics.ics.get(selectedComp.id);
-                  const is555 = icComp.icType === 'NE555';
-                  const outGate = ic?.gates && ic.gates[0];
-                  return (
-                    <div className="physics-stats-grid">
-                      <div className="physics-stat-card">
-                        <span className="stat-label">{is555 ? 'VCC (Pin 8)' : 'VCC (Pin 14)'}</span>
-                        <span className="stat-val">{ic ? `${ic.vccVoltage.toFixed(2)} V` : '0.00 V'}</span>
-                      </div>
-                      <div className="physics-stat-card">
-                        <span className="stat-label">{is555 ? 'GND (Pin 1)' : 'GND (Pin 7)'}</span>
-                        <span className="stat-val">{ic ? `${ic.gndVoltage.toFixed(2)} V` : '0.00 V'}</span>
-                      </div>
-                      <div className="physics-stat-card" style={{ gridColumn: 'span 2' }}>
-                        <span className="stat-label">Power Supply Health</span>
-                        <span className={`stat-val ${ic?.isPowered ? 'success' : 'danger'}`}>
-                          {ic?.isPowered
-                            ? '✓ Powered (VCC >= 3.0V & GND <= 0.8V)'
-                            : is555
-                            ? '⚠ Unpowered (Connect Pin 8 to +5V and Pin 1 to GND)'
-                            : '⚠ Unpowered (Connect Pin 14 to +5V and Pin 7 to GND)'}
-                        </span>
-                      </div>
-                      {is555 && ic?.isPowered && outGate && (
-                        <>
-                          <div className="physics-stat-card">
-                            <span className="stat-label">Timer Output (Pin 3)</span>
-                            <span className={`stat-val ${outGate.output.voltage >= 2.0 ? 'success' : ''}`}>
-                              {outGate.output.voltage.toFixed(2)} V ({outGate.output.voltage >= 2.0 ? 'HIGH' : 'LOW'})
-                            </span>
-                          </div>
-                          <div className="physics-stat-card">
-                            <span className="stat-label">Timer Mode</span>
-                            <span className="stat-val">Astable / Pulse</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })()}
+                {/* Forward Voltage */}
+                <div className="prop-field">
+                  <label className="prop-field-label">Forward Voltage (Vf)</label>
+                  <div className="prop-value-unit-row">
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0.1"
+                      max="3.0"
+                      className="prop-input-field value-input"
+                      value={currentDiodeVf}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val) && val > 0) {
+                          handleDiodeChange({ forwardVoltage: val });
+                        }
+                      }}
+                    />
+                    <span style={{ padding: '0 8px', color: '#64748B', fontSize: '13px', display: 'flex', alignItems: 'center' }}>V</span>
+                  </div>
+                </div>
               </div>
             )}
+
+
 
             <div className="prop-block connection-log-block">
               <div className="prop-block-header-row">

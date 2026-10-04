@@ -335,42 +335,39 @@ export function LabViewDigitalWriter() {
 
             <div className="elvis-switches-bay">
               <div className="elvis-switches-inner">
-                {/* 8 Vertical Toggle Switches */}
-                <div className="elvis-switches-row">
+                <div className="elvis-switches-aligned-grid">
+                  {/* Left prefix label aligned with numbers */}
+                  <div className="elvis-prefix-column">
+                    <span className="elvis-lines-prefix">Lines:</span>
+                  </div>
+
+                  {/* 8 Switch-and-Number Columns: 7 down to 0 */}
                   {visualLines.map((lineIdx) => {
                     const active = isLineActive(lineIdx);
                     const isHigh = bits[lineIdx];
                     return (
-                      <div
-                        key={lineIdx}
-                        className={`elvis-toggle-cell ${!active ? 'disabled' : ''}`}
-                        onClick={() => handleToggleSwitch(lineIdx)}
-                        title={`Line ${lineIdx}: ${isHigh ? 'HI (1)' : 'LO (0)'} - Click to toggle`}
-                      >
-                        <div className="elvis-switch-track">
-                          <div className={`elvis-switch-thumb ${isHigh ? 'pos-hi' : 'pos-lo'}`} />
+                      <div key={lineIdx} className="elvis-switch-unit-col">
+                        <div
+                          className={`elvis-toggle-cell ${!active ? 'disabled' : ''}`}
+                          onClick={() => handleToggleSwitch(lineIdx)}
+                          title={`Line ${lineIdx}: ${isHigh ? 'HI (1)' : 'LO (0)'} - Click to toggle`}
+                        >
+                          <div className="elvis-switch-track">
+                            <div className={`elvis-switch-thumb ${isHigh ? 'pos-hi' : 'pos-lo'}`} />
+                          </div>
                         </div>
+                        <span className={`elvis-switch-col-label ${!active ? 'dimmed' : ''}`}>
+                          {lineIdx}
+                        </span>
                       </div>
                     );
                   })}
+
+                  {/* Right HI/LO legend column */}
                   <div className="elvis-hi-lo-column">
                     <span className="elvis-hi-label">HI</span>
                     <span className="elvis-lo-label">LO</span>
                   </div>
-                </div>
-
-                {/* Lines 7 down to 0 numbering */}
-                <div className="elvis-switch-labels-row">
-                  <span className="elvis-lines-prefix">Lines:</span>
-                  {visualLines.map((lineIdx) => (
-                    <span
-                      key={lineIdx}
-                      className={`elvis-switch-col-label ${!isLineActive(lineIdx) ? 'dimmed' : ''}`}
-                    >
-                      {lineIdx}
-                    </span>
-                  ))}
-                  <span className="elvis-spacer-label" />
                 </div>
               </div>
             </div>

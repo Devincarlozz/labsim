@@ -462,3 +462,87 @@ export class NE555Component implements SimComponent {
     this.outputLevels.pin7 = this.state === 0 ? 0 : 'Z';
   }
 }
+
+// ─── LM741 / uA741 Operational Amplifier (8-pin DIP) ─────────────────────────
+/**
+ * Pinout: 1:OFFSET1, 2:IN-, 3:IN+, 4:V-, 5:OFFSET2, 6:OUT, 7:V+, 8:NC
+ */
+export class OpAmp741Component implements SimComponent {
+  public id: string;
+  public name: string = 'LM741';
+  public pins: Pin[];
+  public isPowered: boolean = false;
+  public outputVolts: number = 0;
+  public outputLevels: Record<string, Level> = { pin6: 'Z' };
+
+  constructor(id: string) {
+    this.id = id;
+    this.pins = [
+      { id: `${id}.pin1`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // OFFSET1
+      { id: `${id}.pin2`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // IN- (inverting)
+      { id: `${id}.pin3`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // IN+ (non-inverting)
+      { id: `${id}.pin4`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // V- (negative supply)
+      { id: `${id}.pin5`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // OFFSET2
+      { id: `${id}.pin6`, owner: id, dir: 'out', drive: { mode: 'none', volts: 0 } }, // OUT
+      { id: `${id}.pin7`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // V+ (positive supply)
+      { id: `${id}.pin8`, owner: id, dir: 'in', drive: { mode: 'none', volts: 0 } },  // NC
+    ];
+  }
+
+  public reset(): void {
+    this.isPowered = false;
+    this.outputVolts = 0;
+    this.outputLevels.pin6 = 'Z';
+    for (const p of this.pins) {
+      if (p.dir === 'out') p.drive = { mode: 'none', volts: 0 };
+    }
+  }
+
+  public step(_dt: number, io: PinIO): void {
+    const vPos = io.read(`${this.id}.pin7`); // V+
+    const vNeg = io.read(`${this.id}.pin4`); // V-
+
+    const vPosVal = vPos.volts !== null ? vPos.volts : 0;
+    const vNegVal = vNeg.volts !== null ? vNeg.volts : 0;
+
+    // Power verification: V+ must be higher than V- by at least 3V
+    this.isPowered = (vPosVal - vNegVal) >= 3.0;
+
+    if (!this.isPowered) {
+      io.drive(`${this.id}.pin6`, { mode: 'none', volts: 0 });
+      this.outputLevels.pin6 = 'Z';
+      return;
+    }
+
+    const inMinus = io.read(`${this.id}.pin2`); // IN-
+    const inPlus = io.read(`${this.id}.pin3`);  // IN+
+
+    const vMinus = inMinus.volts !== null ? inMinus.volts : 0;
+    const vPlus = inPlus.volts !== null ? inPlus.volts : 0;
+
+    // Saturation limits (for 741, output swings to within ~1.4V of supplies)
+    const vMax = vPosVal > 0 ? Math.max(0, vPosVal - 1.4) : vPosVal;
+    const vMin = vNegVal < 0 ? Math.min(0, vNegVal + 1.4) : vNegVal;
+
+    let vOut: number;
+    const diff = vPlus - vMinus;
+    if (Math.abs(diff) < 0.005) {
+      vOut = (vPlus + vMinus) / 2;
+    } else if (diff > 0) {
+      vOut = vMax;
+    } else {
+      vOut = vMin;
+    }
+
+    this.outputVolts = vOut;
+    const outLevel: Level = vOut >= 2.0 ? 1 : (vOut <= 0.8 ? 0 : 'X');
+    this.outputLevels.pin6 = outLevel;
+
+    io.drive(`${this.id}.pin6`, {
+      mode: 'push-pull',
+      volts: vOut,
+      level: (outLevel === 0 || outLevel === 1) ? outLevel : undefined,
+    });
+  }
+}
+

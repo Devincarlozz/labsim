@@ -33,3 +33,12 @@ dist-ssr
 # Temporary / Scratch
 scratch/
 
+# Archives & Installers
+*.zip
+*.exe
+*.msi
+
+# Server runtime logs
+server_logs/*.jsonl
+server_logs/*.log
+

@@ -4,6 +4,7 @@ import {
   ResistorComponent,
   CapacitorComponent,
   LEDComponent,
+  DiodeComponent,
   ICComponent,
   DACComponent,
   Wire,
@@ -76,6 +77,20 @@ export interface LEDPhysics {
   statusText: string;
 }
 
+export interface DiodePhysics {
+  id: string;
+  model: string;
+  forwardVoltage: number;
+  anodeVoltage: number;
+  cathodeVoltage: number;
+  voltageDrop: number;
+  currentAmps: number;
+  currentMilliAmps: number;
+  isConducting: boolean;
+  isReverseBiased: boolean;
+  statusText: string;
+}
+
 export interface ICPhysics {
   id: string;
   icType: string;
@@ -96,6 +111,7 @@ export interface CircuitPhysicsResult {
   resistors: Map<string, ResistorPhysics>;
   capacitors: Map<string, CapacitorPhysics>;
   leds: Map<string, LEDPhysics>;
+  diodes: Map<string, DiodePhysics>;
   ics: Map<string, ICPhysics>;
   time: number;
 }
@@ -131,7 +147,7 @@ export function getCapacitanceInFarads(cap: CapacitorComponent): number {
 export function solveCircuitPhysics(state: Project, time: number): CircuitPhysicsResult {
   const isDaqOn = (state.instruments.daq?.enabled !== false) && (state.simulation.status === 'running');
   const fgen = state.instruments.functionGenerator;
-  const dioBits = state.instruments.daq?.dioBits || [1, 0, 1, 1, 0, 0, 1, 0];
+  const dioBits = state.instruments.daq?.dioBits || [0, 0, 0, 0, 0, 0, 0, 0];
 
   // 1. Derive base galvanic nets (direct copper/breadboard connections)
   const baseNodes = deriveElectricalNodes(state.breadboard, state.wires, state.components);
@@ -313,9 +329,14 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
               const pin3 = icComp.pins[2]?.contactId;
               return pin3 && contactToNetId.get(pin3) === netId;
             }
+            if (icComp.icType === 'LM741' || icComp.icType === '741') {
+              const pin6 = icComp.pins[5]?.contactId;
+              return pin6 && contactToNetId.get(pin6) === netId;
+            }
             const outIndices =
-              icComp.icType === '74HC04' ? [1, 3, 5, 7, 9, 11]
-              : icComp.icType === '74HC02' ? [0, 3, 9, 12]
+              icComp.icType === '74HC04' || icComp.icType === '7404' ? [1, 3, 5, 7, 9, 11]
+              : icComp.icType === '74HC02' || icComp.icType === '7402' ? [0, 3, 9, 12]
+              : icComp.icType === '7474' || icComp.icType === '74HC74' ? [4, 5, 7, 8]
               : [2, 5, 7, 10];
             return outIndices.some((idx) => {
               const cId = icComp.pins[idx]?.contactId;
@@ -354,6 +375,34 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     netWaveforms.set(netId, src);
   }
 
+  // Construct graph of nets connected via resistors (needed by IC op-amps and resistor network)
+  interface ResistorEdge {
+    resistorId: string;
+    net1: string;
+    net2: string;
+    resistance: number;
+  }
+
+  const resistorEdges: ResistorEdge[] = [];
+  const resistorMap = new Map<string, ResistorComponent>();
+
+  for (const comp of state.components.values()) {
+    if (comp.type === 'resistor') {
+      const res = comp as ResistorComponent;
+      resistorMap.set(res.id, res);
+      const pin1 = res.pins[0]?.contactId ? contactToNetId.get(res.pins[0].contactId) : null;
+      const pin2 = res.pins[1]?.contactId ? contactToNetId.get(res.pins[1].contactId) : null;
+      if (pin1 && pin2 && pin1 !== pin2) {
+        resistorEdges.push({
+          resistorId: res.id,
+          net1: pin1,
+          net2: pin2,
+          resistance: getResistanceInOhms(res),
+        });
+      }
+    }
+  }
+
   // First-pass solve for IC Power and Logic
   const icPhysicsMap = new Map<string, ICPhysics>();
 
@@ -361,8 +410,9 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     if (comp.type !== 'ic') continue;
     const ic = comp as ICComponent;
     const is555 = ic.icType === 'NE555';
-    const pinVcc = is555 ? ic.pins[7] : ic.pins[13]; // Pin 8 for 555, Pin 14 for DIP-14
-    const pinGnd = is555 ? ic.pins[0] : ic.pins[6];  // Pin 1 for 555, Pin 7 for DIP-14
+    const is741 = ic.icType === 'LM741' || ic.icType === '741';
+    const pinVcc = is555 ? ic.pins[7] : is741 ? ic.pins[6] : ic.pins[13]; // Pin 8 for 555, Pin 7 for 741, Pin 14 for DIP-14
+    const pinGnd = is555 ? ic.pins[0] : is741 ? ic.pins[3] : ic.pins[6];  // Pin 1 for 555, Pin 4 for 741, Pin 7 for DIP-14
 
     const vccNetId = pinVcc?.contactId ? contactToNetId.get(pinVcc.contactId) : undefined;
     const gndNetId = pinGnd?.contactId ? contactToNetId.get(pinGnd.contactId) : undefined;
@@ -373,8 +423,10 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     const vccVoltage = vccSource ? vccSource.voltage : 0;
     const gndVoltage = gndSource ? gndSource.voltage : 0;
 
-    // A real IC requires VCC >= 3.0V and GND <= 0.8V
-    const isPowered = isDaqOn && vccVoltage >= 3.0 && gndVoltage <= 0.8 && (gndSource?.isGround || gndVoltage < 0.5);
+    // Power check: for 741, (V+ - V-) >= 3.0V. For standard logic: VCC >= 3.0V and GND <= 0.8V
+    const isPowered = is741
+      ? isDaqOn && (vccVoltage - gndVoltage >= 3.0)
+      : isDaqOn && vccVoltage >= 3.0 && gndVoltage <= 0.8 && (gndSource?.isGround || gndVoltage < 0.5);
 
     const icPhys: ICPhysics = {
       id: ic.id,
@@ -549,6 +601,97 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
             internalResistance: 20.0,
           });
         }
+      } else if (ic.icType === 'LM741' || ic.icType === '741') {
+        // LM741 Operational Amplifier (DIP-8: Pin 2 IN-, Pin 3 IN+, Pin 6 OUT, Pin 7 V+, Pin 4 V-)
+        const netInMinus = ic.pins[1]?.contactId ? contactToNetId.get(ic.pins[1].contactId) : undefined;
+        const netInPlus = ic.pins[2]?.contactId ? contactToNetId.get(ic.pins[2].contactId) : undefined;
+        const outNet = ic.pins[5]?.contactId ? contactToNetId.get(ic.pins[5].contactId) : undefined;
+
+        const valInMinus = netInMinus ? (netVoltages.get(netInMinus) ?? 0) : 0;
+        const valInPlus = netInPlus ? (netVoltages.get(netInPlus) ?? 0) : 0;
+        const srcMinus = netInMinus ? netSources.get(netInMinus) : undefined;
+        const srcPlus = netInPlus ? netSources.get(netInPlus) : undefined;
+        const isInputAc = Boolean((srcPlus && srcPlus.isAc) || (srcMinus && srcMinus.isAc));
+        const acSrc = (srcPlus && srcPlus.isAc) ? srcPlus : srcMinus;
+
+        // Saturation limits: V+ - 1.4V to V- + 1.4V
+        const vMax = Math.max(0, vccVoltage - 1.4);
+        const vMin = gndVoltage < 0 ? Math.min(0, gndVoltage + 1.4) : gndVoltage;
+
+        // Detect feedback topology: buffer (voltage follower) or closed loop with resistors
+        const isDirectBuffer = Boolean(outNet && netInMinus && (outNet === netInMinus));
+        let feedbackResistor = 0;
+        let inputResistor = 0;
+        for (const edge of resistorEdges) {
+          if ((edge.net1 === outNet && edge.net2 === netInMinus) || (edge.net2 === outNet && edge.net1 === netInMinus)) {
+            feedbackResistor = edge.resistance;
+          }
+          if (edge.net1 === netInMinus || edge.net2 === netInMinus) {
+            if (edge.net1 !== outNet && edge.net2 !== outNet) {
+              inputResistor = edge.resistance;
+            }
+          }
+        }
+
+        let outVoltage: number;
+        let outAmp = 0;
+        let outWaveform: WaveformType | 'dc' = 'sine';
+
+        if (isDirectBuffer) {
+          // Voltage Follower: Vout = Vin+
+          outVoltage = Math.min(vMax, Math.max(vMin, valInPlus));
+          if (acSrc && acSrc.isAc) {
+            outAmp = Math.min(vMax, acSrc.amplitude);
+            outWaveform = acSrc.waveform;
+          }
+        } else if (feedbackResistor > 0 && inputResistor > 0) {
+          // Inverting or Non-inverting amplifier
+          if (Math.abs(valInPlus) < 0.2) {
+            const gain = feedbackResistor / inputResistor;
+            outVoltage = Math.min(vMax, Math.max(vMin, -gain * valInMinus));
+            if (acSrc && acSrc.isAc) {
+              outAmp = Math.min(vMax, acSrc.amplitude * gain);
+              outWaveform = acSrc.waveform;
+            }
+          } else {
+            const gain = 1 + feedbackResistor / inputResistor;
+            outVoltage = Math.min(vMax, Math.max(vMin, gain * valInPlus));
+            if (acSrc && acSrc.isAc) {
+              outAmp = Math.min(vMax, acSrc.amplitude * gain);
+              outWaveform = acSrc.waveform;
+            }
+          }
+        } else {
+          // Open Loop Comparator: saturated rails
+          const diff = valInPlus - valInMinus;
+          outVoltage = diff > 0.005 ? vMax : (diff < -0.005 ? vMin : (vMax + vMin) / 2);
+          if (acSrc && acSrc.isAc) {
+            outAmp = (vMax - vMin) / 2;
+            outWaveform = 'square';
+          }
+        }
+
+        const outLogic: LogicState = outVoltage >= 2.0 ? 1 : 0;
+        icPhys.gates.push({
+          gateIndex: 0,
+          inputA: { contactId: ic.pins[2]?.contactId, voltage: valInPlus, logic: valInPlus >= 2.0 ? 1 : 0 },
+          inputB: { contactId: ic.pins[1]?.contactId, voltage: valInMinus, logic: valInMinus >= 2.0 ? 1 : 0 },
+          output: { contactId: ic.pins[5]?.contactId, voltage: outVoltage, logic: outLogic },
+        });
+
+        if (outNet) {
+          attachSource(outNet, {
+            voltage: outVoltage,
+            isGround: false,
+            isAc: isInputAc,
+            frequency: acSrc?.frequency || 1000,
+            waveform: isInputAc ? outWaveform : 'dc',
+            amplitude: outAmp,
+            dcOffset: outVoltage,
+            sourceDesc: `LM741 Op-Amp Output (${outVoltage.toFixed(2)}V)`,
+            internalResistance: 50.0,
+          });
+        }
       } else {
         // Gate mapping for standard 14-pin DIPs
         const evaluateGateLogic = (inAVal: number, inBVal?: number): LogicState => {
@@ -556,18 +699,23 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
           const inBHigh = inBVal !== undefined ? inBVal >= 2.0 : undefined;
 
           switch (ic.icType) {
-            case '74HC00': // NAND
+            case '74HC00':
+            case '7400': // NAND
               return (inAHigh && inBHigh) ? 0 : 1;
-            case '74HC02': // NOR
+            case '74HC02':
+            case '7402': // NOR
               return (inAHigh || inBHigh) ? 0 : 1;
-            case '74HC04': // NOT
+            case '74HC04':
+            case '7404': // NOT
               return inAHigh ? 0 : 1;
-            case '74HC08': // AND
+            case '74HC08':
+            case '7408': // AND
               return (inAHigh && inBHigh) ? 1 : 0;
-            case '74HC32': // OR
+            case '74HC32':
+            case '7432': // OR
               return (inAHigh || inBHigh) ? 1 : 0;
-            case '74HC86': // XOR
-            case '7486':
+            case '74HC86':
+            case '7486': // XOR
               return (inAHigh !== inBHigh) ? 1 : 0;
             default:
               return 0;
@@ -582,7 +730,7 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
         }
 
         const gateConfigs: GatePinConfig[] =
-          ic.icType === '74HC04'
+          ic.icType === '74HC04' || ic.icType === '7404'
             ? [
                 { a: 0, out: 1 },
                 { a: 2, out: 3 },
@@ -591,7 +739,7 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
                 { a: 10, out: 9 },
                 { a: 12, out: 11 },
               ]
-            : ic.icType === '74HC02'
+            : ic.icType === '74HC02' || ic.icType === '7402'
             ? [
                 { out: 0, a: 1, b: 2 },
                 { out: 3, a: 4, b: 5 },
@@ -657,33 +805,6 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
   }
 
   // 4. Solve Resistor Network (Ohm's Law, Voltage Dividers, KCL)
-  // Construct graph of nets connected via resistors
-  interface ResistorEdge {
-    resistorId: string;
-    net1: string;
-    net2: string;
-    resistance: number;
-  }
-
-  const resistorEdges: ResistorEdge[] = [];
-  const resistorMap = new Map<string, ResistorComponent>();
-
-  for (const comp of state.components.values()) {
-    if (comp.type === 'resistor') {
-      const res = comp as ResistorComponent;
-      resistorMap.set(res.id, res);
-      const pin1 = res.pins[0]?.contactId ? contactToNetId.get(res.pins[0].contactId) : null;
-      const pin2 = res.pins[1]?.contactId ? contactToNetId.get(res.pins[1].contactId) : null;
-      if (pin1 && pin2 && pin1 !== pin2) {
-        resistorEdges.push({
-          resistorId: res.id,
-          net1: pin1,
-          net2: pin2,
-          resistance: getResistanceInOhms(res),
-        });
-      }
-    }
-  }
 
   // Update seed fixed source nets for iterative nodal solver
   for (const [netId, src] of netSources.entries()) {
@@ -980,7 +1101,81 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     }
   }
 
-  // 8. Assemble final PhysicalNode map
+  // 8. Solve Diodes (1N4001 Silicon Rectifier Diode)
+  const diodePhysicsMap = new Map<string, DiodePhysics>();
+
+  for (const comp of state.components.values()) {
+    if (comp.type !== 'diode') continue;
+    const diode = comp as DiodeComponent;
+    const anodeContact = diode.pins[0]?.contactId;
+    const cathodeContact = diode.pins[1]?.contactId;
+    if (!anodeContact || !cathodeContact) continue;
+
+    const anodeNet = contactToNetId.get(anodeContact);
+    const cathodeNet = contactToNetId.get(cathodeContact);
+
+    const vAnode = anodeNet ? (netVoltages.get(anodeNet) ?? 0) : 0;
+    const vCathode = cathodeNet ? (netVoltages.get(cathodeNet) ?? 0) : 0;
+    const vf = diode.forwardVoltage || 0.7;
+
+    const vDiff = vAnode - vCathode;
+    const isForwardBiased = isDaqOn && vDiff >= vf * 0.85;
+    const isReverseBiased = isDaqOn && vDiff < -0.1;
+
+    let rSeries = 5; // intrinsic dynamic resistance ~5 Ohms
+    for (const edge of resistorEdges) {
+      if (edge.net1 === anodeNet || edge.net2 === anodeNet || edge.net1 === cathodeNet || edge.net2 === cathodeNet) {
+        rSeries += edge.resistance;
+      }
+    }
+
+    let iAmps = 0;
+    if (isForwardBiased) {
+      const drop = Math.min(vf, Math.max(0.4, vDiff * 0.9));
+      iAmps = Math.max(0.001, (vDiff - drop) / rSeries);
+    }
+    const iMilliAmps = iAmps * 1000;
+
+    // Check if driven by AC source (half-wave rectifier!)
+    const acSrc = anodeNet ? netWaveforms.get(anodeNet) : null;
+    if (acSrc && acSrc.isAc && cathodeNet && !netSources.has(cathodeNet)) {
+      const rectV = Math.max(0, vAnode - vf);
+      netVoltages.set(cathodeNet, rectV);
+      netWaveforms.set(cathodeNet, {
+        ...acSrc,
+        voltage: rectV,
+        amplitude: Math.max(0, acSrc.amplitude - vf),
+        dcOffset: Math.max(0, (acSrc.amplitude - vf) / Math.PI),
+        sourceDesc: `${diode.model || '1N4001'} Rectified (${acSrc.frequency}Hz)`,
+      });
+    } else if (isForwardBiased && cathodeNet && !netSources.has(cathodeNet)) {
+      const forwardV = Math.max(0, vAnode - vf);
+      netVoltages.set(cathodeNet, forwardV);
+    }
+
+    let statusText = 'Reverse Biased (Blocking)';
+    if (isForwardBiased) {
+      statusText = `Forward Conducting (${iMilliAmps.toFixed(1)} mA, Vf=${vf.toFixed(2)}V)`;
+    } else if (Math.abs(vDiff) < 0.2) {
+      statusText = 'Unbiased / Inactive';
+    }
+
+    diodePhysicsMap.set(diode.id, {
+      id: diode.id,
+      model: diode.model || '1N4001',
+      forwardVoltage: vf,
+      anodeVoltage: vAnode,
+      cathodeVoltage: vCathode,
+      voltageDrop: isForwardBiased ? vf : vDiff,
+      currentAmps: iAmps,
+      currentMilliAmps: iMilliAmps,
+      isConducting: isForwardBiased,
+      isReverseBiased,
+      statusText,
+    });
+  }
+
+  // 9. Assemble final PhysicalNode map
   const physicalNodes = new Map<string, PhysicalNode>();
   const contactToNodeMap = new Map<ContactId, PhysicalNode>();
 
@@ -1020,6 +1215,7 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     resistors: resistorPhysicsMap,
     capacitors: capacitorPhysicsMap,
     leds: ledPhysicsMap,
+    diodes: diodePhysicsMap,
     ics: icPhysicsMap,
     time,
   };

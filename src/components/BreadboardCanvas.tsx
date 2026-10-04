@@ -241,6 +241,25 @@ export function BreadboardCanvas() {
     };
   }, [editor.viewTransform]);
 
+  // DAQ Hardware Activation "ON" status (in sync with simulation and DAQ instrument)
+  const daqOn = (state.instruments.daq?.enabled !== false) && (simulation.status === 'running');
+
+  const handleToggleDaqPower = useCallback((e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const nextOn = !daqOn;
+    dispatch({
+      type: 'UPDATE_DAQ',
+      settings: { enabled: nextOn },
+    });
+    if (nextOn) {
+      dispatch({ type: 'RUN_SIMULATION' });
+      window.dispatchEvent(new CustomEvent('daq-power-change', { detail: { enabled: true } }));
+    } else {
+      dispatch({ type: 'SET_SIMULATION_STATUS', status: 'paused' });
+      window.dispatchEvent(new CustomEvent('daq-power-change', { detail: { enabled: false } }));
+    }
+  }, [daqOn, dispatch]);
+
   // ─── Mouse Handlers ───────────────────────────────────────────────────────
 
   // Throttle hover detection to once per animation frame
@@ -300,7 +319,7 @@ export function BreadboardCanvas() {
       const compId = rendererRef.current?.hitTestComponent(components, canvasPos.x, canvasPos.y) || null;
       const wireId = rendererRef.current?.hitTestWire(wires, breadboard, canvasPos.x, canvasPos.y) || null;
       const contact = getContactAt(breadboard, canvasPos.x, canvasPos.y, undefined, isDaqVisible);
-      const overToggle = isDaqVisible && canvasPos.x >= 406 && canvasPos.x <= 570 && canvasPos.y >= -60 && canvasPos.y <= -43;
+      const overToggle = isDaqVisible && canvasPos.x >= 395 && canvasPos.x <= 580 && canvasPos.y >= -65 && canvasPos.y <= -38;
 
       setHoveredContact(contact?.id || null);
       setHoveredCompId(compId);
@@ -331,19 +350,9 @@ export function BreadboardCanvas() {
     const canvasPos = screenToCanvas(screenX, screenY);
     const isDaqVisible = state.instruments.daq?.visible !== false;
 
-    // 0. Click directly on DAQ Circuit Power Activation Toggle Switch
-    if (isDaqVisible && canvasPos.x >= 406 && canvasPos.x <= 570 && canvasPos.y >= -60 && canvasPos.y <= -43) {
-      const isCurrentlyActive = simulation.status === 'running' && (state.instruments.daq?.enabled !== false);
-      const nextActive = !isCurrentlyActive;
-      if (nextActive) {
-        dispatch({ type: 'RUN_SIMULATION' });
-        dispatch({ type: 'UPDATE_DAQ', settings: { enabled: true } });
-        window.dispatchEvent(new CustomEvent('daq-power-change', { detail: { enabled: true } }));
-      } else {
-        dispatch({ type: 'SET_SIMULATION_STATUS', status: 'paused' });
-        dispatch({ type: 'UPDATE_DAQ', settings: { enabled: false } });
-        window.dispatchEvent(new CustomEvent('daq-power-change', { detail: { enabled: false } }));
-      }
+    // 0. Click directly on DAQ Circuit Power Activation Toggle Switch (both buttons work in sync!)
+    if (isDaqVisible && canvasPos.x >= 395 && canvasPos.x <= 580 && canvasPos.y >= -65 && canvasPos.y <= -38) {
+      handleToggleDaqPower(e);
       return;
     }
 
@@ -413,8 +422,15 @@ export function BreadboardCanvas() {
 
     // Select mode
     if (editor.mode === 'select') {
-      // 1. Check component hit (allows clicking and dragging ANY component on the breadboard)
       if (rendererRef.current) {
+        // 1. Check wire hit anywhere along the Manhattan wire route (touching anywhere on wire)
+        const wireId = rendererRef.current.hitTestWire(wires, breadboard, canvasPos.x, canvasPos.y);
+        if (wireId) {
+          dispatch({ type: 'SELECT_WIRE', id: wireId });
+          return;
+        }
+
+        // 2. Check component hit (allows clicking and dragging ANY component on the breadboard)
         const compId = rendererRef.current.hitTestComponent(components, canvasPos.x, canvasPos.y);
         if (compId) {
           const comp = components.get(compId);
@@ -432,35 +448,12 @@ export function BreadboardCanvas() {
           dispatch({ type: 'SELECT_COMPONENT', id: compId });
           return;
         }
-
-        // 2. Check wire hit
-        const wireId = rendererRef.current.hitTestWire(wires, breadboard, canvasPos.x, canvasPos.y);
-        if (wireId) {
-          dispatch({ type: 'SELECT_WIRE', id: wireId });
-          return;
-        }
       }
 
-      // 3. Click directly on a pin contact hole / DAQ terminal -> start or finish wire directly
-      const contact = getContactAt(breadboard, canvasPos.x, canvasPos.y, undefined, isDaqVisible);
-      if (contact) {
-        if (editor.wireStart) {
-          if (editor.wireStart !== contact.id) {
-            dispatch({ type: 'FINISH_WIRE', contactId: contact.id });
-          } else {
-            dispatch({ type: 'CANCEL_WIRE' });
-          }
-        } else {
-          dispatch({ type: 'START_WIRE', contactId: contact.id });
-        }
-        return;
-      }
-
-      // 4. Clicked on blank white space of breadboard or empty canvas background:
-      // Allow panning without cancelling wireStart so the breadboard can be slid!
-      if (!editor.wireStart) {
-        dispatch({ type: 'SELECT_COMPONENT', id: null });
-      }
+      // 3. Clicked on blank space or contact hole in select mode:
+      // Deselect and allow panning (in select mode, wiring is disabled; use Wire mode for routing)
+      dispatch({ type: 'SELECT_COMPONENT', id: null });
+      dispatch({ type: 'SELECT_WIRE', id: null });
       isPanningRef.current = true;
       setIsPanning(true);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
@@ -528,10 +521,9 @@ export function BreadboardCanvas() {
       if (hoveredCompId) return 'move';
       return 'grab';
     }
-    // Select mode
-    if (hoveredCompId) return 'move';
+    // Select mode: no wiring pointer! Touching/hovering wire shows pointer
     if (hoveredWireId) return 'pointer';
-    if (hoveredContact) return 'crosshair';
+    if (hoveredCompId) return 'move';
     return 'grab';
   };
 
@@ -616,6 +608,27 @@ export function BreadboardCanvas() {
       ref={containerRef}
       className={`canvas-area mode-${editor.mode} ${isPanning ? 'panning' : ''}`}
     >
+      {/* Dedicated Workspace DAQ Power Activation Button (Left Side) */}
+      <div className="workspace-daq-power-wrapper">
+        <button
+          className={`workspace-daq-power-btn ${daqOn ? 'power-on' : 'power-off'}`}
+          onClick={handleToggleDaqPower}
+          title={daqOn ? "Turn NI myDAQ OFF (Connected to DAQ switch)" : "Turn NI myDAQ ON (Connected to DAQ switch)"}
+          aria-label="Toggle DAQ Hardware Power"
+        >
+          <div className="daq-pwr-indicator-ring">
+            <span className={`daq-pwr-led-core ${daqOn ? 'active' : ''}`} />
+          </div>
+          <div className="daq-pwr-meta">
+            <span className="daq-pwr-badge">NI myDAQ</span>
+            <span className="daq-pwr-status-text">{daqOn ? 'POWER ON' : 'POWER OFF'}</span>
+          </div>
+          <svg className="daq-pwr-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+            <line x1="12" y1="2" x2="12" y2="12" />
+          </svg>
+        </button>
+      </div>
 
       <canvas
         ref={canvasRef}
@@ -633,41 +646,6 @@ export function BreadboardCanvas() {
         onWheel={handleWheel}
         onContextMenu={handleContextMenu}
       />
-
-      {/* Real-time Circuit Physics Probe HUD */}
-      {hoverPhysicsData && mousePos && !isPanning && !isDragging && (
-        <div
-          className="circuit-physics-probe-hud"
-          style={{
-            position: 'absolute',
-            left: `${Math.min(window.innerWidth - 320, mousePos.x + 18)}px`,
-            top: `${Math.max(10, mousePos.y - 35)}px`,
-            pointerEvents: 'none',
-            zIndex: 60,
-          }}
-        >
-          <div className="probe-hud-title-row">
-            <span className="probe-hud-icon">⚡</span>
-            <span className="probe-hud-name">{hoverPhysicsData.title}</span>
-            <span className="probe-hud-badge">{hoverPhysicsData.badge}</span>
-          </div>
-          <div className="probe-hud-metric-row">
-            <span className="metric-label">Potential:</span>
-            <span className="metric-val voltage">{hoverPhysicsData.voltage}</span>
-          </div>
-          {hoverPhysicsData.current && (
-            <div className="probe-hud-metric-row">
-              <span className="metric-label">Current:</span>
-              <span className="metric-val current">{hoverPhysicsData.current}</span>
-            </div>
-          )}
-          {hoverPhysicsData.detail && (
-            <div className="probe-hud-detail-row">
-              {hoverPhysicsData.detail}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Status bar */}
       <div className="canvas-status-bar">
