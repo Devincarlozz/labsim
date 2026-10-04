@@ -58,9 +58,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getStoredFirebaseConfig()
   );
 
-  // Modals state
+  // Modals state (persists admin modal open state across browser refresh)
   const [isLoginModalOpen, setLoginModalOpen] = useState(false);
-  const [isAdminModalOpen, setAdminModalOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpenState] = useState(() => {
+    try {
+      return sessionStorage.getItem('circuitlab_admin_modal_open') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const setAdminModalOpen = useCallback((open: boolean) => {
+    setIsAdminModalOpenState(open);
+    try {
+      if (open) {
+        sessionStorage.setItem('circuitlab_admin_modal_open', 'true');
+      } else {
+        sessionStorage.removeItem('circuitlab_admin_modal_open');
+      }
+    } catch {}
+  }, []);
 
   const heartbeatTimer = useRef<number | null>(null);
 

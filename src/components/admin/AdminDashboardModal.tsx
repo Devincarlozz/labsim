@@ -13,22 +13,42 @@ export function AdminDashboardModal() {
   const [selectedUser, setSelectedUser] = useState<UserPresence | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(new Date());
 
   // Subscribe to real-time users from Firebase Firestore database
   useEffect(() => {
     if (!isAdminModalOpen || !isAdmin) return;
 
-    // Fetch initial list directly from Firebase Firestore database
-    fetchAllFirebaseUsers().then((list) => {
+    // Immediately trigger server fetch directly from Firebase Firestore
+    setIsRefreshing(true);
+    fetchAllFirebaseUsers(true).then((list) => {
       setUsers(list);
-    }).catch(() => {});
+      setLastRefreshed(new Date());
+    }).catch((err) => {
+      console.warn('Initial Firebase users fetch error:', err);
+    }).finally(() => {
+      setIsRefreshing(false);
+    });
 
     // Real-time listener on Firestore 'users' collection
     const unsubscribe = subscribeToActiveUsers((activeList) => {
       setUsers(activeList);
+      setLastRefreshed(new Date());
     });
 
-    return () => unsubscribe();
+    // Automatically re-fetch from Firebase when window/tab gains focus
+    const handleFocus = () => {
+      fetchAllFirebaseUsers(true).then((list) => {
+        setUsers(list);
+        setLastRefreshed(new Date());
+      }).catch(() => {});
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [isAdminModalOpen, isAdmin]);
 
   // Derived KPIs
@@ -74,9 +94,23 @@ export function AdminDashboardModal() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const fresh = await fetchAllFirebaseUsers();
+      // Directly fetch latest authoritative user documents from Firebase Firestore server
+      const fresh = await fetchAllFirebaseUsers(true);
       setUsers(fresh);
-    } catch {
+      const now = new Date();
+      setLastRefreshed(now);
+      setCopiedNotice(`Updated ${fresh.length} users from Firebase`);
+      setTimeout(() => setCopiedNotice(null), 3000);
+
+      // If user detail inspector is open, update selectedUser with fresh Firebase data
+      if (selectedUser) {
+        const updatedSelected = fresh.find((u) => u.uid === selectedUser.uid);
+        if (updatedSelected) {
+          setSelectedUser(updatedSelected);
+        }
+      }
+    } catch (err) {
+      console.warn('Manual refresh failed, using cached users:', err);
       setUsers(getLocalActiveUsers());
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
@@ -173,16 +207,21 @@ export function AdminDashboardModal() {
                 </h2>
                 <span className="live-pulse-badge">
                   <span className="pulse-dot" />
-                  LIVE REALTIME
+                  LIVE FIREBASE
                 </span>
                 {copiedNotice && (
                   <span className="copied-toast-badge">
-                    ✓ Copied {copiedNotice}
+                    ✓ {copiedNotice}
                   </span>
                 )}
               </div>
               <p className="admin-modal-subtitle">
                 Authorized Lab Administrator: <strong>{user.email}</strong> • Connected to Firebase Firestore Database (<strong>{users.length}</strong> {users.length === 1 ? 'user' : 'users'})
+                {lastRefreshed && (
+                  <span className="last-sync-time">
+                    {' '}• Synced at <strong>{lastRefreshed.toLocaleTimeString()}</strong>
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -191,12 +230,13 @@ export function AdminDashboardModal() {
             <button
               className={`admin-refresh-action-btn ${isRefreshing ? 'spinning' : ''}`}
               onClick={handleRefresh}
-              title="Refresh User Presence"
+              disabled={isRefreshing}
+              title="Fetch Current Users Directly from Firebase Firestore"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
               </svg>
-              <span>Refresh</span>
+              <span>{isRefreshing ? 'Fetching Firebase...' : 'Refresh Firebase'}</span>
             </button>
             <button
               className="modal-close-btn"
@@ -540,6 +580,13 @@ export function AdminDashboardModal() {
                     <span className="meta-label">Last Active</span>
                     <span className="meta-value">{formatTimeAgo(selectedUser.lastSeen)}</span>
                   </div>
+
+                  {selectedUser.createdAt && (
+                    <div className="meta-item">
+                      <span className="meta-label">Joined / Registered</span>
+                      <span className="meta-value">{formatDate(selectedUser.createdAt)}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="inspector-section">

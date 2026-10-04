@@ -7042,6 +7042,17 @@ input, select, textarea, button {
   animation: fadeIn 0.2s ease;
 }
 
+.last-sync-time {
+  color: #38BDF8;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.last-sync-time strong {
+  color: #E2E8F0;
+  font-family: monospace;
+}
+
 /* No project banner */
 .no-project-banner {
   display: flex;

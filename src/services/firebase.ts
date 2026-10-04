@@ -19,6 +19,7 @@ import {
   onSnapshot,
   query,
   getDocs,
+  getDocsFromServer,
   Firestore,
 } from 'firebase/firestore';
 import { AuthUser, UserPresence } from '../types/auth';
@@ -529,6 +530,13 @@ export async function syncUserPresence(presence: UserPresence): Promise<void> {
   }
 }
 
+// In-memory cache of verified remote users fetched from Firebase Firestore database
+let cachedRemoteUsers: UserPresence[] = [];
+
+export function getCachedRemoteUsers(): UserPresence[] {
+  return cachedRemoteUsers;
+}
+
 // Normalize any document from Firebase Firestore database into UserPresence format
 export function normalizeUserPresence(data: any, docId: string): UserPresence {
   const email = data.email || null;
@@ -542,35 +550,61 @@ export function normalizeUserPresence(data: any, docId: string): UserPresence {
     photoURL: data.photoURL || null,
     role: isAdmin ? 'admin' : (data.role === 'admin' ? 'admin' : 'user'),
     status: data.status || 'offline',
-    lastSeen: data.lastSeen || data.updatedAt || data.createdAt || Date.now(),
-    createdAt: data.createdAt,
+    lastSeen: Number(data.lastSeen || data.updatedAt || data.lastLoginAt || data.createdAt) || Date.now(),
+    createdAt: data.createdAt ? Number(data.createdAt) : undefined,
     authProvider: data.authProvider || (isAdmin ? 'google' : 'email'),
     browserInfo: data.browserInfo || 'Firebase User Account',
-    activeProject: data.activeProject || undefined,
+    activeProject: data.activeProject
+      ? {
+          id: data.activeProject.id || 'project',
+          name: data.activeProject.name || 'Untitled Circuit',
+          componentCount: Number(data.activeProject.componentCount) || 0,
+          wireCount: Number(data.activeProject.wireCount) || 0,
+          isSimulating: Boolean(data.activeProject.isSimulating),
+          daqEnabled: Boolean(data.activeProject.daqEnabled),
+          lastUpdated: Number(data.activeProject.lastUpdated) || Date.now(),
+        }
+      : undefined,
   };
 }
 
-// Fetch all users directly from Firebase Firestore database collection('users')
-export async function fetchAllFirebaseUsers(): Promise<UserPresence[]> {
+// Fetch all current users directly from Firebase Firestore database collection('users')
+// When forceServer is true, it explicitly requests server data from Firestore backend
+export async function fetchAllFirebaseUsers(forceServer = true): Promise<UserPresence[]> {
   cleanupDummyUsers();
   const remoteUsers: UserPresence[] = [];
 
   if (db && isConfigured) {
     try {
       const usersCol = collection(db, 'users');
-      const snap = await getDocs(usersCol);
+      let snap;
+      if (forceServer) {
+        try {
+          // Bypasses stale client memory cache and fetches current documents directly from Firestore
+          snap = await getDocsFromServer(usersCol);
+        } catch {
+          snap = await getDocs(usersCol);
+        }
+      } else {
+        snap = await getDocs(usersCol);
+      }
+
       snap.forEach((docSnap) => {
         const data = docSnap.data();
         if (!isDummyUser({ uid: docSnap.id, email: data.email })) {
           remoteUsers.push(normalizeUserPresence(data, docSnap.id));
         }
       });
+
+      if (remoteUsers.length > 0) {
+        cachedRemoteUsers = remoteUsers;
+      }
     } catch (err) {
       console.warn('Firestore fetch all users error:', err);
     }
   }
 
-  return getAllMergedUsers(remoteUsers);
+  return getAllMergedUsers(cachedRemoteUsers.length > 0 ? cachedRemoteUsers : remoteUsers);
 }
 
 // Subscribe to real-time users directly from Firebase Firestore database
@@ -580,7 +614,7 @@ export function subscribeToActiveUsers(
   cleanupDummyUsers();
 
   const handleUpdate = () => {
-    callback(getAllMergedUsers([]));
+    callback(getAllMergedUsers(cachedRemoteUsers));
   };
 
   let firestoreUnsubscribe: (() => void) | null = null;
@@ -600,11 +634,14 @@ export function subscribeToActiveUsers(
               remoteUsers.push(normalizeUserPresence(data, docSnap.id));
             }
           });
-          callback(getAllMergedUsers(remoteUsers));
+          if (remoteUsers.length > 0) {
+            cachedRemoteUsers = remoteUsers;
+          }
+          callback(getAllMergedUsers(cachedRemoteUsers));
         },
         (err) => {
-          console.warn('Firestore snapshot error, falling back to local users:', err);
-          callback(getAllMergedUsers([]));
+          console.warn('Firestore snapshot error, using cached remote users:', err);
+          callback(getAllMergedUsers(cachedRemoteUsers));
         }
       );
     } catch (e) {
@@ -619,9 +656,14 @@ export function subscribeToActiveUsers(
   // Periodic heartbeat timer (every 5 seconds) to refresh online/offline status live
   const timer = window.setInterval(handleUpdate, 5000);
 
-  // Trigger initial fetch
-  fetchAllFirebaseUsers().then(callback).catch(() => {
-    callback(getAllMergedUsers([]));
+  // Periodic active re-poll from Firebase Firestore server (every 25 seconds) to ensure fresh server data
+  const serverPollTimer = window.setInterval(() => {
+    fetchAllFirebaseUsers(false).then(callback).catch(() => {});
+  }, 25000);
+
+  // Trigger initial server fetch immediately
+  fetchAllFirebaseUsers(true).then(callback).catch(() => {
+    callback(getAllMergedUsers(cachedRemoteUsers));
   });
 
   return () => {
@@ -629,6 +671,7 @@ export function subscribeToActiveUsers(
     window.removeEventListener('storage', handleUpdate);
     window.removeEventListener('circuitlab-presence-update', handleUpdate);
     window.clearInterval(timer);
+    window.clearInterval(serverPollTimer);
   };
 }
 
@@ -734,7 +777,7 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
 
 // Consolidate real users from Firebase Firestore database, authorized admins, and active sessions
 // (NO DUMMY USERS)
-export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresence[] {
+export function getAllMergedUsers(remoteUsers: UserPresence[] = cachedRemoteUsers): UserPresence[] {
   const userMap = new Map<string, UserPresence>();
   const now = Date.now();
 
@@ -744,38 +787,7 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     userMap.set(key, { ...acc });
   }
 
-  // 2. All real users from Firebase Firestore database collection('users')
-  for (const ru of remoteUsers) {
-    if (isDummyUser(ru)) continue;
-    const key = (ru.email || ru.uid).toLowerCase();
-    const isAdmin = checkIsAdmin(ru.email);
-    const existing = userMap.get(key);
-    userMap.set(key, {
-      ...(existing || {}),
-      ...ru,
-      role: isAdmin ? 'admin' : (ru.role || existing?.role || 'user'),
-    });
-  }
-
-  // 3. Both Authorized Administrator accounts
-  for (const adminEmail of AUTHORIZED_ADMIN_EMAILS) {
-    const key = adminEmail.toLowerCase();
-    const existing = userMap.get(key);
-    userMap.set(key, {
-      uid: existing?.uid || `admin-${key.replace(/[@.]/g, '-')}`,
-      displayName: existing?.displayName || (key.includes('06') ? 'Bhagath Krishnan (Lead Admin)' : 'Bhagath Krishnan (Admin)'),
-      email: adminEmail,
-      photoURL: existing?.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
-      role: 'admin',
-      status: existing?.status || 'offline',
-      lastSeen: existing?.lastSeen || 1790963656813,
-      authProvider: 'google',
-      browserInfo: existing?.browserInfo || 'Chrome • Windows (Admin)',
-      activeProject: existing?.activeProject,
-    });
-  }
-
-  // 4. Stored active presence entries from localStorage (non-dummy)
+  // 2. Stored active presence entries from localStorage (non-dummy) - offline local cache
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
     if (raw) {
@@ -791,7 +803,7 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
     console.warn('Error reading STORAGE_KEY_LOCAL_USERS:', e);
   }
 
-  // 5. Any locally registered accounts
+  // 3. Any locally registered accounts
   for (const reg of getRegisteredUsers()) {
     if (isDummyUser(reg)) continue;
     const key = reg.email.toLowerCase();
@@ -807,6 +819,39 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
       createdAt: reg.createdAt,
       authProvider: 'email',
       browserInfo: existing?.browserInfo || 'Registered Account (Email/Password)',
+      activeProject: existing?.activeProject,
+    });
+  }
+
+  // 4. All real users from Firebase Firestore database collection('users')
+  // CLOUD SERVER TRUTH: Overwrites local caches with authoritative remote data
+  const effectiveRemote = remoteUsers && remoteUsers.length > 0 ? remoteUsers : cachedRemoteUsers;
+  for (const ru of effectiveRemote) {
+    if (isDummyUser(ru)) continue;
+    const key = (ru.email || ru.uid).toLowerCase();
+    const isAdmin = checkIsAdmin(ru.email);
+    const existing = userMap.get(key);
+    userMap.set(key, {
+      ...(existing || {}),
+      ...ru,
+      role: isAdmin ? 'admin' : (ru.role || existing?.role || 'user'),
+    });
+  }
+
+  // 5. Both Authorized Administrator accounts
+  for (const adminEmail of AUTHORIZED_ADMIN_EMAILS) {
+    const key = adminEmail.toLowerCase();
+    const existing = userMap.get(key);
+    userMap.set(key, {
+      uid: existing?.uid || `admin-${key.replace(/[@.]/g, '-')}`,
+      displayName: existing?.displayName || (key.includes('06') ? 'Bhagath Krishnan (Lead Admin)' : 'Bhagath Krishnan (Admin)'),
+      email: adminEmail,
+      photoURL: existing?.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
+      role: 'admin',
+      status: existing?.status || 'offline',
+      lastSeen: existing?.lastSeen || 1790963656813,
+      authProvider: 'google',
+      browserInfo: existing?.browserInfo || 'Chrome • Windows (Admin)',
       activeProject: existing?.activeProject,
     });
   }
@@ -876,7 +921,7 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = []): UserPresenc
 
 export function getLocalActiveUsers(): UserPresence[] {
   cleanupDummyUsers();
-  return getAllMergedUsers([]);
+  return getAllMergedUsers(cachedRemoteUsers);
 }
 
 // ─── Firestore Admin Messages Persistence Helpers ───────────────────────────
