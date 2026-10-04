@@ -15,6 +15,7 @@ import {
   getFirestore,
   doc,
   setDoc,
+  getDoc,
   collection,
   onSnapshot,
   query,
@@ -22,7 +23,7 @@ import {
   getDocsFromServer,
   Firestore,
 } from 'firebase/firestore';
-import { AuthUser, UserPresence } from '../types/auth';
+import { AuthUser, UserPresence, TestModeSettings } from '../types/auth';
 
 const STORAGE_KEY_CONFIG = 'circuitlab_firebase_config';
 const STORAGE_KEY_LOCAL_USERS = 'circuitlab_active_users_cache';
@@ -995,3 +996,163 @@ export function onFirebaseAuthState(callback: (user: FirebaseUser | null) => voi
   }
   return () => {};
 }
+
+// ─── Real-User Beta Testing Lock Mode Helpers ───────────────────────────────
+
+const STORAGE_KEY_TEST_MODE = 'circuitlab_test_mode_settings';
+
+export const DEFAULT_TEST_MODE_SETTINGS: TestModeSettings = {
+  enabled: false,
+  allowedEmails: [],
+  bannerMessage: 'Laboratory simulation workspace is currently in private test mode.',
+};
+
+export function getStoredTestModeSettings(): TestModeSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_TEST_MODE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        enabled: Boolean(parsed.enabled),
+        enabledAt: parsed.enabledAt,
+        enabledBy: parsed.enabledBy,
+        allowedEmails: Array.isArray(parsed.allowedEmails) ? parsed.allowedEmails : [],
+        bannerMessage: parsed.bannerMessage || DEFAULT_TEST_MODE_SETTINGS.bannerMessage,
+      };
+    }
+  } catch {}
+  return DEFAULT_TEST_MODE_SETTINGS;
+}
+
+export async function fetchTestModeSettings(): Promise<TestModeSettings> {
+  if (db && isConfigured) {
+    try {
+      const docRef = doc(db, 'system_settings', 'test_mode');
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        const settings: TestModeSettings = {
+          enabled: Boolean(data.enabled),
+          enabledAt: data.enabledAt,
+          enabledBy: data.enabledBy,
+          allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
+          bannerMessage: data.bannerMessage || DEFAULT_TEST_MODE_SETTINGS.bannerMessage,
+        };
+        localStorage.setItem(STORAGE_KEY_TEST_MODE, JSON.stringify(settings));
+        return settings;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch test mode settings from Firestore:', err);
+    }
+  }
+  return getStoredTestModeSettings();
+}
+
+export async function saveTestModeSettings(settings: TestModeSettings): Promise<void> {
+  try {
+    localStorage.setItem(STORAGE_KEY_TEST_MODE, JSON.stringify(settings));
+    window.dispatchEvent(new CustomEvent('circuitlab-test-mode-update', { detail: settings }));
+  } catch {}
+
+  if (db && isConfigured) {
+    try {
+      const docRef = doc(db, 'system_settings', 'test_mode');
+      await setDoc(docRef, settings, { merge: true });
+    } catch (err) {
+      console.warn('Failed to save test mode settings to Firestore:', err);
+    }
+  }
+}
+
+export function subscribeToTestModeSettings(
+  callback: (settings: TestModeSettings) => void
+): () => void {
+  // Initial fire from cached settings
+  callback(getStoredTestModeSettings());
+
+  let unsubscribeFirestore: (() => void) | null = null;
+
+  if (db && isConfigured) {
+    try {
+      const docRef = doc(db, 'system_settings', 'test_mode');
+      unsubscribeFirestore = onSnapshot(docRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const settings: TestModeSettings = {
+            enabled: Boolean(data.enabled),
+            enabledAt: data.enabledAt,
+            enabledBy: data.enabledBy,
+            allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
+            bannerMessage: data.bannerMessage || DEFAULT_TEST_MODE_SETTINGS.bannerMessage,
+          };
+          localStorage.setItem(STORAGE_KEY_TEST_MODE, JSON.stringify(settings));
+          callback(settings);
+        }
+      });
+    } catch (e) {
+      console.warn('Error subscribing to test mode settings from Firestore:', e);
+    }
+  }
+
+  // Cross-tab and same-tab custom storage listener
+  const handleLocal = () => {
+    callback(getStoredTestModeSettings());
+  };
+
+  window.addEventListener('storage', handleLocal);
+  window.addEventListener('circuitlab-test-mode-update', handleLocal);
+
+  fetchTestModeSettings().then(callback).catch(() => {});
+
+  return () => {
+    if (unsubscribeFirestore) unsubscribeFirestore();
+    window.removeEventListener('storage', handleLocal);
+    window.removeEventListener('circuitlab-test-mode-update', handleLocal);
+  };
+}
+
+// Check if a specific user session is authorized when Test Mode / Test Lock is active
+export function isUserAuthorizedForTestMode(
+  email: string | null | undefined,
+  role: string | undefined,
+  testMode: TestModeSettings,
+  activeUsers?: UserPresence[]
+): boolean {
+  // If test mode is not enabled, anyone can access
+  if (!testMode.enabled) return true;
+
+  if (!email) return false;
+  const cleanEmail = email.trim().toLowerCase();
+
+  // 1. Authorized Administrators are ALWAYS allowed access
+  if (role === 'admin' || checkIsAdmin(cleanEmail)) {
+    return true;
+  }
+
+  // 2. Whitelisted emails explicitly added by Admin
+  if (testMode.allowedEmails && testMode.allowedEmails.some((e) => e.trim().toLowerCase() === cleanEmail)) {
+    return true;
+  }
+
+  // 3. Current registered users (all users in Firebase database and active users list)
+  if (FIREBASE_DATABASE_ACCOUNTS.some((acc) => acc.email?.toLowerCase() === cleanEmail)) {
+    return true;
+  }
+
+  if (activeUsers && activeUsers.some((u) => u.email?.toLowerCase() === cleanEmail)) {
+    return true;
+  }
+
+  if (cachedRemoteUsers && cachedRemoteUsers.some((u) => u.email?.toLowerCase() === cleanEmail)) {
+    return true;
+  }
+
+  // Also check local registered accounts
+  const localRegs = getRegisteredUsers();
+  if (localRegs.some((u) => u.email.toLowerCase() === cleanEmail)) {
+    return true;
+  }
+
+  return false;
+}
+

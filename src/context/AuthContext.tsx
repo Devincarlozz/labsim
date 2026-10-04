@@ -4,10 +4,11 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   ReactNode,
 } from 'react';
-import { AuthUser, UserPresence } from '../types/auth';
+import { AuthUser, UserPresence, TestModeSettings } from '../types/auth';
 import {
   isFirebaseConfigured,
   loginWithGoogleFirebase,
@@ -23,6 +24,10 @@ import {
   saveStoredFirebaseConfig,
   initFirebaseService,
   getStoredFirebaseConfig,
+  getStoredTestModeSettings,
+  saveTestModeSettings,
+  subscribeToTestModeSettings,
+  isUserAuthorizedForTestMode,
 } from '../services/firebase';
 import { useStore } from '../store/CircuitStore';
 
@@ -45,6 +50,12 @@ interface AuthContextType {
   // Config
   firebaseConfig: FirebaseCustomConfig | null;
   saveConfig: (cfg: FirebaseCustomConfig) => boolean;
+  // Real-User Test Mode / Test Lock
+  testMode: TestModeSettings;
+  setTestModeEnabled: (enabled: boolean) => Promise<void>;
+  addTestModeEmail: (email: string) => Promise<void>;
+  removeTestModeEmail: (email: string) => Promise<void>;
+  isCurrentSessionAuthorized: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -80,6 +91,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const heartbeatTimer = useRef<number | null>(null);
+
+  // Real-User Beta Testing Lock Mode State
+  const [testMode, setTestMode] = useState<TestModeSettings>(getStoredTestModeSettings());
+
+  // Subscribe to live Test Mode changes across Firestore and local storage
+  useEffect(() => {
+    const unsub = subscribeToTestModeSettings((settings) => {
+      setTestMode(settings);
+    });
+    return () => unsub();
+  }, []);
+
+  const setTestModeEnabled = useCallback(async (enabled: boolean) => {
+    const updated: TestModeSettings = {
+      ...testMode,
+      enabled,
+      enabledAt: enabled ? Date.now() : testMode.enabledAt,
+      enabledBy: user?.email || 'admin',
+    };
+    setTestMode(updated);
+    await saveTestModeSettings(updated);
+  }, [testMode, user]);
+
+  const addTestModeEmail = useCallback(async (emailToAdd: string) => {
+    const clean = emailToAdd.trim().toLowerCase();
+    if (!clean) return;
+    if (testMode.allowedEmails.some((e) => e.toLowerCase() === clean)) return;
+    const updated: TestModeSettings = {
+      ...testMode,
+      allowedEmails: [...testMode.allowedEmails, clean],
+      enabledBy: user?.email || 'admin',
+    };
+    setTestMode(updated);
+    await saveTestModeSettings(updated);
+  }, [testMode, user]);
+
+  const removeTestModeEmail = useCallback(async (emailToRemove: string) => {
+    const clean = emailToRemove.trim().toLowerCase();
+    const updated: TestModeSettings = {
+      ...testMode,
+      allowedEmails: testMode.allowedEmails.filter((e) => e.toLowerCase() !== clean),
+      enabledBy: user?.email || 'admin',
+    };
+    setTestMode(updated);
+    await saveTestModeSettings(updated);
+  }, [testMode, user]);
 
   // Check initial user from simulated login or Firebase
   useEffect(() => {
@@ -249,6 +306,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkIsAdmin(user.email)
   );
 
+  // Real-User Test Mode Authorization check
+  const isCurrentSessionAuthorized = useMemo(() => {
+    return isUserAuthorizedForTestMode(user?.email, user?.role, testMode);
+  }, [user, testMode]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -268,6 +330,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAdminModalOpen,
         firebaseConfig,
         saveConfig,
+        testMode,
+        setTestModeEnabled,
+        addTestModeEmail,
+        removeTestModeEmail,
+        isCurrentSessionAuthorized,
       }}
     >
       {children}

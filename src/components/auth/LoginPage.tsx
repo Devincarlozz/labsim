@@ -11,6 +11,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
     loginWithEmail,
     registerWithEmail,
     loginDemo,
+    testMode,
   } = useAuth();
 
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -340,6 +341,19 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
             </div>
 
             <div className="neon-auth-card">
+              {/* Test Mode Notification Banner */}
+              {testMode.enabled && (
+                <div className="login-test-mode-banner">
+                  <div className="login-test-badge-row">
+                    <span className="login-test-pulsing-disc" />
+                    <span className="login-test-badge-text">🔒 REAL-USER TEST LOCK ACTIVE</span>
+                  </div>
+                  <p className="login-test-info-desc">
+                    Private real-user testing is currently active. Access is exclusively granted to authorized tester accounts and active lab researchers.
+                  </p>
+                </div>
+              )}
+
               {/* Sign In / Create Account Tab Buttons */}
               <div className="neon-card-tabs">
                 <button

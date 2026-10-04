@@ -10323,4 +10323,763 @@ input, select, textarea, button {
   transform: translateY(-1px);
 }
 
+/* ==========================================================================
+   REAL-USER TEST MODE & ACCESS LOCK SYSTEM
+   ========================================================================== */
+
+/* 1. Toolbar Header Test Mode Badge */
+.test-mode-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(217, 119, 6, 0.22) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  color: #FCD34D;
+  padding: 4px 11px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  user-select: none;
+}
+
+.test-mode-header-badge:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.26) 0%, rgba(217, 119, 6, 0.35) 100%);
+  border-color: #F59E0B;
+  color: #FEF08A;
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.test-mode-beacon {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #F59E0B;
+  box-shadow: 0 0 8px #F59E0B;
+  animation: testBeaconPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes testBeaconPulse {
+  0% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 4px #F59E0B; }
+  50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 12px #F59E0B, 0 0 20px rgba(245, 158, 11, 0.6); }
+  100% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 4px #F59E0B; }
+}
+
+/* 2. Top Workspace Testing Ribbon */
+.test-mode-workspace-ribbon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 18px;
+  background: linear-gradient(90deg, #1C1917 0%, #292524 35%, #1C1917 100%);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  z-index: 95;
+  font-size: 12px;
+  color: #E7E5E4;
+}
+
+.test-ribbon-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.test-ribbon-beacon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #F59E0B;
+  box-shadow: 0 0 8px #F59E0B;
+  animation: testBeaconPulse 1.8s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+.test-ribbon-title {
+  font-weight: 700;
+  color: #FCD34D;
+  letter-spacing: 0.03em;
+}
+
+.test-ribbon-sub {
+  color: #A8A29E;
+  font-weight: 500;
+}
+
+.test-ribbon-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.test-ribbon-btn {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #FCD34D;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.test-ribbon-btn:hover {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: #F59E0B;
+  color: #FFFFFF;
+}
+
+.test-ribbon-dismiss {
+  background: transparent;
+  border: none;
+  color: #78716C;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.test-ribbon-dismiss:hover {
+  color: #E7E5E4;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 3. Admin Top Bar Test Lock Button */
+.admin-test-lock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+}
+
+.admin-test-lock-btn.is-locked {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0%, rgba(220, 38, 38, 0.28) 100%);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #FCA5A5;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.25);
+}
+
+.admin-test-lock-btn.is-locked:hover {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(220, 38, 38, 0.42) 100%);
+  border-color: #EF4444;
+  color: #FFFFFF;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+}
+
+.admin-test-lock-btn.is-unlocked {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #6EE7B7;
+}
+
+.admin-test-lock-btn.is-unlocked:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #10B981;
+  color: #A7F3D0;
+}
+
+/* 4. Admin Test Mode & Whitelist Panel */
+.admin-test-mode-panel {
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.25s ease;
+}
+
+.admin-test-mode-panel.active-locked {
+  background: linear-gradient(135deg, rgba(30, 27, 24, 0.85) 0%, rgba(41, 23, 23, 0.85) 100%);
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.12), inset 0 1px 0 rgba(245, 158, 11, 0.2);
+}
+
+.test-mode-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.test-mode-status-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.test-mode-icon-disc {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.test-mode-icon-disc.locked {
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.25);
+}
+
+.test-mode-icon-disc.unlocked {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.test-mode-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.test-mode-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin: 0;
+}
+
+.test-mode-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+}
+
+.test-mode-pill.pill-active {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #FCA5A5;
+}
+
+.test-mode-pill.pill-inactive {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #6EE7B7;
+}
+
+.test-mode-desc {
+  font-size: 12px;
+  color: #94A3B8;
+  margin: 0;
+  max-width: 600px;
+  line-height: 1.45;
+}
+
+.test-lock-toggle-action {
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.test-lock-toggle-action.btn-danger {
+  background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%);
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);
+}
+
+.test-lock-toggle-action.btn-danger:hover {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.5);
+}
+
+.test-lock-toggle-action.btn-primary {
+  background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+}
+
+.test-lock-toggle-action.btn-primary:hover {
+  background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
+  transform: translateY(-1px);
+}
+
+/* Whitelist box in admin panel */
+.test-mode-whitelist-box {
+  margin-top: 14px;
+}
+
+.whitelist-input-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.whitelist-label {
+  font-size: 12px;
+  color: #CBD5E1;
+}
+
+.whitelist-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 500px;
+}
+
+.whitelist-email-input {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #F8FAFC;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.whitelist-email-input:focus {
+  border-color: #38BDF8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.whitelist-add-btn {
+  background: #1677E8;
+  border: none;
+  color: #FFFFFF;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.whitelist-add-btn:hover:not(:disabled) {
+  background: #1260BD;
+  transform: translateY(-1px);
+}
+
+.whitelist-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.whitelist-chips-container {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.whitelist-caption-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.whitelist-chips-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94A3B8;
+}
+
+.whitelist-info-tag {
+  font-size: 10px;
+  color: #34D399;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.whitelist-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tester-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 7px;
+  padding: 4px 9px;
+  font-size: 12px;
+  color: #E0F2FE;
+}
+
+.tester-chip-icon {
+  font-size: 11px;
+}
+
+.tester-chip-email {
+  font-weight: 500;
+}
+
+.tester-chip-remove {
+  background: transparent;
+  border: none;
+  color: #94A3B8;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  transition: color 0.15s ease;
+}
+
+.tester-chip-remove:hover {
+  color: #EF4444;
+}
+
+.no-custom-emails-text {
+  font-size: 11px;
+  color: #64748B;
+  font-style: italic;
+}
+
+/* User Card Test Allowed Pill */
+.test-allowed-pill {
+  font-size: 10px;
+  font-weight: 700;
+  color: #34D399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.03em;
+}
+
+/* Inspector Action Buttons for whitelist */
+.inspector-action-btn.success {
+  background: #059669;
+  color: #FFFFFF;
+}
+
+.inspector-action-btn.success:hover {
+  background: #047857;
+}
+
+.inspector-action-btn.danger {
+  background: #DC2626;
+  color: #FFFFFF;
+}
+
+.inspector-action-btn.danger:hover {
+  background: #B91C1C;
+}
+
+/* 5. Login Page Test Mode Banner */
+.login-test-mode-banner {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.14) 0%, rgba(217, 119, 6, 0.22) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.3s ease;
+}
+
+.login-test-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.login-test-pulsing-disc {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #F59E0B;
+  box-shadow: 0 0 8px #F59E0B;
+  animation: testBeaconPulse 1.8s infinite ease-in-out;
+}
+
+.login-test-badge-text {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #FCD34D;
+}
+
+.login-test-info-desc {
+  font-size: 11.5px;
+  color: #D6D3D1;
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* 6. Test Mode Full-Screen Lockout Modal */
+.test-lockout-backdrop {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 30%, rgba(30, 27, 24, 0.94) 0%, rgba(10, 15, 29, 0.98) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.test-lockout-card {
+  width: 100%;
+  max-width: 520px;
+  background: linear-gradient(180deg, #18181B 0%, #0F172A 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 24px;
+  padding: 36px 32px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65), 0 0 40px rgba(245, 158, 11, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.test-lockout-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #F59E0B, #EF4444, #F59E0B);
+}
+
+.test-lockout-emblem-wrap {
+  position: relative;
+  margin-bottom: 18px;
+}
+
+.test-lockout-glow {
+  position: absolute;
+  inset: -12px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.4) 0%, transparent 70%);
+  filter: blur(16px);
+  border-radius: 50%;
+}
+
+.test-lockout-shield {
+  width: 76px;
+  height: 76px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.1) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 8px 24px rgba(245, 158, 11, 0.25);
+}
+
+.test-lockout-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #FCD34D;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  margin-bottom: 12px;
+}
+
+.test-lockout-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #F59E0B;
+  animation: testBeaconPulse 1.8s infinite ease-in-out;
+}
+
+.test-lockout-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #FFFFFF;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.02em;
+}
+
+.test-lockout-sub {
+  font-size: 13.5px;
+  color: #A1A1AA;
+  line-height: 1.5;
+  margin: 0 0 20px 0;
+  max-width: 440px;
+}
+
+.test-lockout-status-card {
+  width: 100%;
+  background: rgba(24, 24, 27, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.lockout-field-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #71717A;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 3px;
+}
+
+.lockout-user-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: #F4F4F5;
+  display: block;
+}
+
+.lockout-verdict-pill {
+  font-size: 11px;
+  font-weight: 700;
+  color: #F87171;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  padding: 4px 10px;
+  border-radius: 9999px;
+}
+
+.test-lockout-explanation {
+  background: rgba(245, 158, 11, 0.07);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 24px;
+  border-left: 3px solid #F59E0B;
+  text-align: left;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.test-lockout-explanation p {
+  font-size: 12px;
+  color: #D4D4D8;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.test-lockout-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.btn-lockout-primary {
+  width: 100%;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #1677E8 0%, #0D5AC0 100%);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(22, 119, 232, 0.35);
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.btn-lockout-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1F83FA 0%, #1677E8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(22, 119, 232, 0.45);
+}
+
+.btn-lockout-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-lockout-secondary {
+  width: 100%;
+  padding: 11px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.btn-lockout-secondary:hover {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #F59E0B;
+  color: #FEF08A;
+}
+
+.btn-lockout-outline {
+  width: 100%;
+  padding: 11px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #A1A1AA;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.btn-lockout-outline:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #FFFFFF;
+}
+
+.test-lockout-footer {
+  margin-top: 18px;
+  font-size: 11px;
+  color: #71717A;
+}
+
+
 

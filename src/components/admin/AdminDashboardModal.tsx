@@ -6,7 +6,16 @@ import { UserPresence } from '../../types/auth';
 type FilterTab = 'all' | 'online' | 'simulating' | 'admins' | 'registered' | 'projects';
 
 export function AdminDashboardModal() {
-  const { isAdminModalOpen, setAdminModalOpen, user, isAdmin } = useAuth();
+  const {
+    isAdminModalOpen,
+    setAdminModalOpen,
+    user,
+    isAdmin,
+    testMode,
+    setTestModeEnabled,
+    addTestModeEmail,
+    removeTestModeEmail,
+  } = useAuth();
   const [users, setUsers] = useState<UserPresence[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<FilterTab>('all');
@@ -14,6 +23,55 @@ export function AdminDashboardModal() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(new Date());
+  const [testerEmailInput, setTesterEmailInput] = useState('');
+  const [isUpdatingTestMode, setIsUpdatingTestMode] = useState(false);
+
+  const handleToggleTestMode = async () => {
+    setIsUpdatingTestMode(true);
+    try {
+      const nextState = !testMode.enabled;
+      await setTestModeEnabled(nextState);
+      setCopiedNotice(nextState ? '🔒 Test Lock Activated (Site Restricted)' : '🔓 Test Lock Deactivated (Public Access)');
+      setTimeout(() => setCopiedNotice(null), 3500);
+    } catch {
+      setCopiedNotice('Failed to update Test Lock state');
+    } finally {
+      setTimeout(() => setIsUpdatingTestMode(false), 400);
+    }
+  };
+
+  const handleAddTesterEmail = async () => {
+    const clean = testerEmailInput.trim().toLowerCase();
+    if (!clean) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+      setCopiedNotice('Please enter a valid email address');
+      setTimeout(() => setCopiedNotice(null), 3000);
+      return;
+    }
+    if (testMode.allowedEmails.some((e) => e.toLowerCase() === clean)) {
+      setCopiedNotice('This email is already on the whitelist');
+      setTimeout(() => setCopiedNotice(null), 3000);
+      return;
+    }
+    try {
+      await addTestModeEmail(clean);
+      setTesterEmailInput('');
+      setCopiedNotice(`✓ Added ${clean} to tester whitelist`);
+      setTimeout(() => setCopiedNotice(null), 3000);
+    } catch {
+      setCopiedNotice('Failed to add tester email');
+    }
+  };
+
+  const handleRemoveTesterEmail = async (emailToRemove: string) => {
+    try {
+      await removeTestModeEmail(emailToRemove);
+      setCopiedNotice(`Removed ${emailToRemove} from whitelist`);
+      setTimeout(() => setCopiedNotice(null), 3000);
+    } catch {
+      setCopiedNotice('Failed to remove tester email');
+    }
+  };
 
   // Subscribe to real-time users from Firebase Firestore database
   useEffect(() => {
@@ -227,6 +285,29 @@ export function AdminDashboardModal() {
           </div>
 
           <div className="admin-top-actions">
+            {/* Real-User Test Mode / Lock Button */}
+            <button
+              className={`admin-test-lock-btn ${testMode.enabled ? 'is-locked' : 'is-unlocked'} ${isUpdatingTestMode ? 'spinning' : ''}`}
+              onClick={handleToggleTestMode}
+              disabled={isUpdatingTestMode}
+              title={testMode.enabled ? "Test Lock is Active (Page locked to unwhitelisted users) — Click to deactivate" : "Click to activate Test Lock and restrict access to authorized testers"}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                {testMode.enabled ? (
+                  <>
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                  </>
+                )}
+              </svg>
+              <span>{testMode.enabled ? '🔒 Test Lock: ACTIVE' : '🔓 Test Lock: OFF'}</span>
+            </button>
+
             <button
               className={`admin-refresh-action-btn ${isRefreshing ? 'spinning' : ''}`}
               onClick={handleRefresh}
@@ -245,6 +326,100 @@ export function AdminDashboardModal() {
             >
               ✕
             </button>
+          </div>
+        </div>
+
+        {/* Real-User Test Lock & Beta Whitelist Bench */}
+        <div className={`admin-test-mode-panel ${testMode.enabled ? 'active-locked' : 'inactive'}`}>
+          <div className="test-mode-panel-header">
+            <div className="test-mode-status-info">
+              <div className={`test-mode-icon-disc ${testMode.enabled ? 'locked' : 'unlocked'}`}>
+                {testMode.enabled ? '🔒' : '🔓'}
+              </div>
+              <div>
+                <div className="test-mode-title-row">
+                  <h3 className="test-mode-title">
+                    {testMode.enabled ? 'Real-User Beta Test Lock: ACTIVE' : 'Real-User Beta Test Lock: DISABLED (Public Access)'}
+                  </h3>
+                  <span className={`test-mode-pill ${testMode.enabled ? 'pill-active' : 'pill-inactive'}`}>
+                    {testMode.enabled ? '● ONLY APPROVED TESTERS CAN ACCESS' : '○ PUBLIC ACCESS ENABLED'}
+                  </span>
+                </div>
+                <p className="test-mode-desc">
+                  {testMode.enabled
+                    ? 'The workspace is locked for private testing. Only administrators, current registered database users, and emails in the whitelist below can view and simulate.'
+                    : 'Turn Test Lock ON to lock out unverified visitors and test new features with real users.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="test-mode-actions">
+              <button
+                className={`test-lock-toggle-action ${testMode.enabled ? 'btn-danger' : 'btn-primary'}`}
+                onClick={handleToggleTestMode}
+                disabled={isUpdatingTestMode}
+              >
+                {testMode.enabled ? '🔓 Turn Test Lock OFF (Make Public)' : '🔒 Turn Test Lock ON (Lock to Testers)'}
+              </button>
+            </div>
+          </div>
+
+          {/* Whitelist Email Adder & Tag List */}
+          <div className="test-mode-whitelist-box">
+            <div className="whitelist-input-row">
+              <label className="whitelist-label">
+                <strong>Add Allowed Tester Email:</strong>
+              </label>
+              <div className="whitelist-form">
+                <input
+                  type="email"
+                  placeholder="e.g. researcher@university.edu"
+                  value={testerEmailInput}
+                  onChange={(e) => setTesterEmailInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddTesterEmail()}
+                  className="whitelist-email-input"
+                />
+                <button
+                  className="whitelist-add-btn"
+                  onClick={handleAddTesterEmail}
+                  disabled={!testerEmailInput.trim()}
+                >
+                  + Whitelist Email
+                </button>
+              </div>
+            </div>
+
+            {/* Allowed emails chips list */}
+            <div className="whitelist-chips-container">
+              <div className="whitelist-caption-row">
+                <span className="whitelist-chips-caption">
+                  Whitelisted Tester Accounts ({testMode.allowedEmails.length} custom + {users.length} auto-approved current users):
+                </span>
+                <span className="whitelist-info-tag">✓ Current database users are automatically authorized</span>
+              </div>
+              <div className="whitelist-chips-grid">
+                {testMode.allowedEmails.length === 0 ? (
+                  <span className="no-custom-emails-text">
+                    No custom emails added yet. All existing registered users in the database below are automatically permitted.
+                  </span>
+                ) : (
+                  testMode.allowedEmails.map((em) => (
+                    <span key={em} className="tester-chip">
+                      <span className="tester-chip-icon">✉️</span>
+                      <span className="tester-chip-email">{em}</span>
+                      <button
+                        className="tester-chip-remove"
+                        onClick={() => handleRemoveTesterEmail(em)}
+                        title={`Remove ${em} from whitelist`}
+                        aria-label={`Remove ${em} from whitelist`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -430,6 +605,11 @@ export function AdminDashboardModal() {
                             {u.displayName || 'Anonymous User'}
                           </span>
                           {renderProviderBadge(u)}
+                          {testMode.enabled && (
+                            <span className="test-allowed-pill" title="Permitted during Test Lock mode">
+                              ✓ Tester
+                            </span>
+                          )}
                         </div>
                         <span className="user-email-text" title={u.email || ''}>
                           {u.email || 'No email associated'}
@@ -638,12 +818,35 @@ export function AdminDashboardModal() {
 
               <div className="inspector-footer">
                 {selectedUser.email && (
-                  <button
-                    className="inspector-action-btn primary"
-                    onClick={() => handleCopy(selectedUser.email!, 'Email Address')}
-                  >
-                    Copy Email Address
-                  </button>
+                  <>
+                    <button
+                      className="inspector-action-btn primary"
+                      onClick={() => handleCopy(selectedUser.email!, 'Email Address')}
+                    >
+                      Copy Email Address
+                    </button>
+                    {testMode.allowedEmails.includes(selectedUser.email.toLowerCase()) ? (
+                      <button
+                        className="inspector-action-btn danger"
+                        onClick={async () => {
+                          await handleRemoveTesterEmail(selectedUser.email!.toLowerCase());
+                        }}
+                      >
+                        Remove from Test Whitelist
+                      </button>
+                    ) : (
+                      <button
+                        className="inspector-action-btn success"
+                        onClick={async () => {
+                          await addTestModeEmail(selectedUser.email!.toLowerCase());
+                          setCopiedNotice(`Added ${selectedUser.email} to tester whitelist`);
+                          setTimeout(() => setCopiedNotice(null), 3000);
+                        }}
+                      >
+                        + Whitelist for Test Mode
+                      </button>
+                    )}
+                  </>
                 )}
                 <button
                   className="inspector-action-btn secondary"

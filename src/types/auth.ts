@@ -31,3 +31,12 @@ export interface AuthUser {
   authProvider?: 'google' | 'email';
   isAnonymous?: boolean;
 }
+
+export interface TestModeSettings {
+  enabled: boolean;
+  enabledAt?: number;
+  enabledBy?: string;
+  allowedEmails: string[];
+  bannerMessage?: string;
+}
+
