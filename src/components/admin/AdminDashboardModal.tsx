@@ -15,6 +15,10 @@ export function AdminDashboardModal() {
     setTestModeEnabled,
     addTestModeEmail,
     removeTestModeEmail,
+    deleteUser,
+    createUser,
+    whitelistAllUsers,
+    clearTestWhitelist,
   } = useAuth();
   const [users, setUsers] = useState<UserPresence[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +29,14 @@ export function AdminDashboardModal() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(new Date());
   const [testerEmailInput, setTesterEmailInput] = useState('');
   const [isUpdatingTestMode, setIsUpdatingTestMode] = useState(false);
+
+  // Add User Modal State
+  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'user' | 'admin'>('user');
+  const [newUserAllowTestMode, setNewUserAllowTestMode] = useState(true);
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
   const handleToggleTestMode = async () => {
     setIsUpdatingTestMode(true);
@@ -71,6 +83,84 @@ export function AdminDashboardModal() {
     } catch {
       setCopiedNotice('Failed to remove tester email');
     }
+  };
+
+  // Add new user to Firebase
+  const handleAddUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = newUserEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setCopiedNotice('Please enter a valid email address');
+      setTimeout(() => setCopiedNotice(null), 3000);
+      return;
+    }
+    setIsSubmittingUser(true);
+    try {
+      const created = await createUser({
+        displayName: newUserName.trim() || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        role: newUserRole,
+        allowInTestMode: newUserAllowTestMode,
+      });
+      setUsers((prev) => [created, ...prev.filter((u) => u.email?.toLowerCase() !== cleanEmail)]);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserRole('user');
+      setIsAddUserModalOpen(false);
+      setCopiedNotice(`✓ Created user "${cleanEmail}" in Firebase`);
+      setTimeout(() => setCopiedNotice(null), 3500);
+    } catch {
+      setCopiedNotice('Failed to create user in Firebase');
+    } finally {
+      setIsSubmittingUser(false);
+    }
+  };
+
+  // Permanently delete user from Firebase & directory
+  const handleDeleteUser = async (u: UserPresence) => {
+    const idStr = u.displayName || u.email || u.uid;
+    if (!window.confirm(`Permanently remove user "${idStr}" from Firebase Firestore and directory?`)) {
+      return;
+    }
+    try {
+      await deleteUser(u.uid, u.email || undefined);
+      setUsers((prev) => prev.filter((x) => x.uid !== u.uid && (!u.email || x.email?.toLowerCase() !== u.email.toLowerCase())));
+      if (selectedUser?.uid === u.uid) {
+        setSelectedUser(null);
+      }
+      setCopiedNotice(`✓ Permanently removed "${idStr}"`);
+      setTimeout(() => setCopiedNotice(null), 3500);
+    } catch {
+      setCopiedNotice('Failed to remove user');
+    }
+  };
+
+  // Quick toggle user's test mode authorization
+  const handleToggleUserTestMode = async (email: string) => {
+    const clean = email.trim().toLowerCase();
+    if (testMode.allowedEmails.some((e) => e.toLowerCase() === clean)) {
+      await removeTestModeEmail(clean);
+      setCopiedNotice(`🔒 Removed "${clean}" from Test Mode`);
+    } else {
+      await addTestModeEmail(clean);
+      setCopiedNotice(`✓ Allowed "${clean}" in Test Mode`);
+    }
+    setTimeout(() => setCopiedNotice(null), 3000);
+  };
+
+  // Whitelist all current users
+  const handleWhitelistAllUsers = async () => {
+    await whitelistAllUsers(users);
+    setCopiedNotice(`✓ Whitelisted all ${users.length} registered users`);
+    setTimeout(() => setCopiedNotice(null), 3000);
+  };
+
+  // Clear whitelist
+  const handleClearTestWhitelist = async () => {
+    if (!window.confirm('Lock out all non-admin users from Test Mode? Only administrators will be able to access until new testers are whitelisted.')) return;
+    await clearTestWhitelist();
+    setCopiedNotice('Cleared Test Mode whitelist');
+    setTimeout(() => setCopiedNotice(null), 3000);
   };
 
   // Subscribe to real-time users from Firebase Firestore database
@@ -308,6 +398,21 @@ export function AdminDashboardModal() {
               <span>{testMode.enabled ? '🔒 Test Lock: ACTIVE' : '🔓 Test Lock: OFF'}</span>
             </button>
 
+            {/* Add User Button */}
+            <button
+              className="admin-add-user-btn"
+              onClick={() => setIsAddUserModalOpen(true)}
+              title="Register a new user directly in Firebase Firestore"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="8.5" cy="7" r="4" />
+                <line x1="20" y1="8" x2="20" y2="14" />
+                <line x1="23" y1="11" x2="17" y2="11" />
+              </svg>
+              <span>+ Add User</span>
+            </button>
+
             <button
               className={`admin-refresh-action-btn ${isRefreshing ? 'spinning' : ''}`}
               onClick={handleRefresh}
@@ -393,14 +498,31 @@ export function AdminDashboardModal() {
             <div className="whitelist-chips-container">
               <div className="whitelist-caption-row">
                 <span className="whitelist-chips-caption">
-                  Whitelisted Tester Accounts ({testMode.allowedEmails.length} custom + {users.length} auto-approved current users):
+                  Active Whitelisted Testers ({testMode.allowedEmails.length} permitted accounts):
                 </span>
-                <span className="whitelist-info-tag">✓ Current database users are automatically authorized</span>
+                <div className="whitelist-bulk-actions">
+                  <button
+                    className="whitelist-bulk-btn add"
+                    onClick={handleWhitelistAllUsers}
+                    title="Add all registered users to test mode"
+                  >
+                    + Whitelist All Current Users
+                  </button>
+                  {testMode.allowedEmails.length > 0 && (
+                    <button
+                      className="whitelist-bulk-btn clear"
+                      onClick={handleClearTestWhitelist}
+                      title="Clear whitelist and restrict access to administrators only"
+                    >
+                      Clear Whitelist
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="whitelist-chips-grid">
                 {testMode.allowedEmails.length === 0 ? (
                   <span className="no-custom-emails-text">
-                    No custom emails added yet. All existing registered users in the database below are automatically permitted.
+                    No users whitelisted. In Test Mode, all non-admin users are currently locked out. Add emails above or click "+ Whitelist All Current Users".
                   </span>
                 ) : (
                   testMode.allowedEmails.map((em) => (
@@ -410,7 +532,7 @@ export function AdminDashboardModal() {
                       <button
                         className="tester-chip-remove"
                         onClick={() => handleRemoveTesterEmail(em)}
-                        title={`Remove ${em} from whitelist`}
+                        title={`Remove ${em} from test mode whitelist`}
                         aria-label={`Remove ${em} from whitelist`}
                       >
                         ✕
@@ -606,8 +728,11 @@ export function AdminDashboardModal() {
                           </span>
                           {renderProviderBadge(u)}
                           {testMode.enabled && (
-                            <span className="test-allowed-pill" title="Permitted during Test Lock mode">
-                              ✓ Tester
+                            <span
+                              className={`test-allowed-pill ${(u.email && testMode.allowedEmails.some((e) => e.toLowerCase() === u.email!.toLowerCase())) || u.role === 'admin' ? 'is-allowed' : 'is-locked'}`}
+                              title={(u.email && testMode.allowedEmails.some((e) => e.toLowerCase() === u.email!.toLowerCase())) || u.role === 'admin' ? "Allowed in Test Mode" : "Locked out in Test Mode"}
+                            >
+                              {(u.email && testMode.allowedEmails.some((e) => e.toLowerCase() === u.email!.toLowerCase())) || u.role === 'admin' ? '✓ Allowed' : '🔒 Locked'}
                             </span>
                           )}
                         </div>
@@ -683,6 +808,43 @@ export function AdminDashboardModal() {
                         💻 {u.browserInfo || 'Web Browser'}
                       </span>
                       <div className="user-footer-actions">
+                        {u.role !== 'admin' && u.email && (
+                          testMode.allowedEmails.some((e) => e.toLowerCase() === u.email!.toLowerCase()) ? (
+                            <button
+                              className="card-action-pill remove-tester"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleUserTestMode(u.email!);
+                              }}
+                              title="Remove user from Test Mode (lock out)"
+                            >
+                              Remove Tester 🚫
+                            </button>
+                          ) : (
+                            <button
+                              className="card-action-pill add-tester"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleUserTestMode(u.email!);
+                              }}
+                              title="Allow user into Test Mode"
+                            >
+                              + Allow Test 🔒
+                            </button>
+                          )
+                        )}
+                        {u.role !== 'admin' && (
+                          <button
+                            className="card-action-pill delete-user"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUser(u);
+                            }}
+                            title="Permanently remove user from Firebase"
+                          >
+                            Delete 🗑️
+                          </button>
+                        )}
                         <button
                           className="quick-inspect-btn"
                           onClick={(e) => {
@@ -825,7 +987,7 @@ export function AdminDashboardModal() {
                     >
                       Copy Email Address
                     </button>
-                    {testMode.allowedEmails.includes(selectedUser.email.toLowerCase()) ? (
+                    {testMode.allowedEmails.some((e) => e.toLowerCase() === selectedUser.email!.toLowerCase()) ? (
                       <button
                         className="inspector-action-btn danger"
                         onClick={async () => {
@@ -846,6 +1008,15 @@ export function AdminDashboardModal() {
                         + Whitelist for Test Mode
                       </button>
                     )}
+                    {selectedUser.role !== 'admin' && (
+                      <button
+                        className="inspector-action-btn danger delete-perm"
+                        onClick={() => handleDeleteUser(selectedUser)}
+                        title="Permanently remove user from Firebase"
+                      >
+                        🗑️ Delete User from Firebase
+                      </button>
+                    )}
                   </>
                 )}
                 <button
@@ -855,6 +1026,111 @@ export function AdminDashboardModal() {
                   Close Inspection
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add New User Modal */}
+        {isAddUserModalOpen && (
+          <div className="circuitlab-modal-backdrop add-user-overlay" onClick={() => !isSubmittingUser && setIsAddUserModalOpen(false)}>
+            <div
+              className="circuitlab-modal-dialog add-user-dialog-card"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="modal-header-row">
+                <div className="modal-header-brand">
+                  <div className="brand-icon small">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.2">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="8.5" cy="7" r="4" />
+                      <line x1="20" y1="8" x2="20" y2="14" />
+                      <line x1="23" y1="11" x2="17" y2="11" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="modal-title">Register New User</h3>
+                    <p className="modal-subtitle">Directly creates user record in Firebase Firestore</p>
+                  </div>
+                </div>
+                <button
+                  className="modal-close-btn"
+                  onClick={() => !isSubmittingUser && setIsAddUserModalOpen(false)}
+                  disabled={isSubmittingUser}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleAddUserSubmit} className="add-user-modal-form">
+                <div className="form-group-field">
+                  <label>Full Display Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Researcher Maya"
+                    value={newUserName}
+                    onChange={(e) => setNewUserName(e.target.value)}
+                    disabled={isSubmittingUser}
+                    required
+                  />
+                </div>
+
+                <div className="form-group-field">
+                  <label>Email Address</label>
+                  <input
+                    type="email"
+                    placeholder="e.g. maya@university.edu"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    disabled={isSubmittingUser}
+                    required
+                  />
+                </div>
+
+                <div className="form-group-field">
+                  <label>Account Role</label>
+                  <select
+                    value={newUserRole}
+                    onChange={(e) => setNewUserRole(e.target.value as 'user' | 'admin')}
+                    disabled={isSubmittingUser}
+                    className="add-user-role-select"
+                  >
+                    <option value="user">User / Student Researcher</option>
+                    <option value="admin">Lab Administrator</option>
+                  </select>
+                </div>
+
+                <div className="add-user-checkbox-row">
+                  <label className="checkbox-custom-label">
+                    <input
+                      type="checkbox"
+                      checked={newUserAllowTestMode}
+                      onChange={(e) => setNewUserAllowTestMode(e.target.checked)}
+                      disabled={isSubmittingUser}
+                    />
+                    <span>Grant immediate access in Real-User Test Mode whitelist</span>
+                  </label>
+                </div>
+
+                <div className="add-user-modal-actions">
+                  <button
+                    type="submit"
+                    className="btn-create-user-submit"
+                    disabled={isSubmittingUser || !newUserEmail.trim()}
+                  >
+                    {isSubmittingUser ? 'Saving to Firebase...' : '✓ Create User in Firebase'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-cancel-user-modal"
+                    onClick={() => setIsAddUserModalOpen(false)}
+                    disabled={isSubmittingUser}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

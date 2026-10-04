@@ -156,14 +156,15 @@ input, select, textarea, button {
   justify-content: space-between;
   width: 100%;
   height: 100%;
-  max-width: 100%;
-  padding: 0 20px;
+  max-width: 100vw;
+  padding: 0 12px;
   background: transparent;
   border: none;
   border-radius: 0;
   box-shadow: none;
   box-sizing: border-box;
-  gap: 12px;
+  gap: 8px;
+  overflow: visible;
 }
 
 /* Left cluster: Brand & Workspace selector */
@@ -414,8 +415,9 @@ input, select, textarea, button {
 .header-right-cluster {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .header-pill-capsule {
@@ -5809,6 +5811,36 @@ input, select, textarea, button {
   }
 }
 
+@media screen and (max-width: 1400px) {
+  .brand-subtitle {
+    display: none;
+  }
+  .guide-btn-text {
+    display: none;
+  }
+  .ws-name-text {
+    max-width: 90px;
+  }
+}
+
+@media screen and (max-width: 1200px) {
+  .tool-mode-btn span {
+    display: none;
+  }
+  .tool-mode-btn {
+    padding: 0 10px;
+  }
+  .ws-name-text {
+    max-width: 75px;
+  }
+  .header-admin-btn .admin-btn-label {
+    display: none;
+  }
+  .header-admin-btn {
+    padding: 0 8px;
+  }
+}
+
 @media screen and (max-width: 1240px) {
   :root {
     --left-sidebar-width: 250px;
@@ -5854,6 +5886,7 @@ input, select, textarea, button {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .header-admin-btn:hover {
@@ -5866,6 +5899,52 @@ input, select, textarea, button {
   background: rgba(56, 189, 248, 0.15);
   border-color: #38BDF8;
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.header-admin-btn.has-test-lock {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #FCD34D;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.header-admin-btn.has-test-lock:hover {
+  background: rgba(245, 158, 11, 0.24);
+  border-color: #F59E0B;
+  color: #FFFFFF;
+}
+
+.admin-test-tag {
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+}
+
+.test-mode-header-badge.compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 9999px;
+  color: #FCD34D;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.test-mode-pulse-beacon {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #F59E0B;
+  box-shadow: 0 0 6px #F59E0B;
+  animation: testBeaconPulse 1.8s infinite ease-in-out;
 }
 
 .admin-btn-live-dot {
@@ -5886,6 +5965,8 @@ input, select, textarea, button {
 /* Profile Dropdown & Popover */
 .header-profile-dropdown-wrapper {
   position: relative;
+  flex-shrink: 0;
+  z-index: 60;
 }
 
 .header-profile-avatar.logged-in {
@@ -10768,15 +10849,250 @@ input, select, textarea, button {
 .test-allowed-pill {
   font-size: 10px;
   font-weight: 700;
-  color: #34D399;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.35);
   padding: 2px 7px;
   border-radius: 9999px;
   letter-spacing: 0.03em;
 }
 
-/* Inspector Action Buttons for whitelist */
+.test-allowed-pill.is-allowed {
+  color: #34D399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.test-allowed-pill.is-locked {
+  color: #F87171;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Admin Top Bar Add User Button */
+.admin-add-user-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
+  transition: all 0.15s ease;
+}
+
+.admin-add-user-btn:hover {
+  background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45);
+  transform: translateY(-0.5px);
+}
+
+/* Add User Modal Dialog */
+.add-user-overlay {
+  z-index: 100000;
+}
+
+.add-user-dialog-card {
+  width: 100%;
+  max-width: 480px;
+  background: #0B1324;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  padding: 24px;
+}
+
+.add-user-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.add-user-role-select {
+  width: 100%;
+  height: 38px;
+  background: #111D35;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #F8FAFC;
+  padding: 0 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.add-user-role-select:focus {
+  border-color: #38BDF8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.add-user-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(56, 189, 248, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 8px;
+}
+
+.checkbox-custom-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: #CBD5E1;
+  cursor: pointer;
+}
+
+.checkbox-custom-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0284C7;
+  cursor: pointer;
+}
+
+.add-user-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.btn-create-user-submit {
+  height: 38px;
+  padding: 0 18px;
+  background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+  border: none;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-create-user-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
+  transform: translateY(-1px);
+}
+
+.btn-create-user-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-cancel-user-modal {
+  height: 38px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #94A3B8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-cancel-user-modal:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+}
+
+/* User Card Quick Actions: Remove Tester, Add Tester, Delete */
+.card-action-pill {
+  padding: 2.5px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.card-action-pill.remove-tester {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #FCA5A5;
+}
+
+.card-action-pill.remove-tester:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #EF4444;
+  color: #FFFFFF;
+}
+
+.card-action-pill.add-tester {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #6EE7B7;
+}
+
+.card-action-pill.add-tester:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10B981;
+  color: #FFFFFF;
+}
+
+.card-action-pill.delete-user {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.25);
+  color: #FDA4AF;
+}
+
+.card-action-pill.delete-user:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: #F43F5E;
+  color: #FFFFFF;
+}
+
+/* Bulk Whitelist Actions */
+.whitelist-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.whitelist-bulk-btn {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.whitelist-bulk-btn.add {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: #38BDF8;
+}
+
+.whitelist-bulk-btn.add:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: #FFFFFF;
+}
+
+.whitelist-bulk-btn.clear {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #FCA5A5;
+}
+
+.whitelist-bulk-btn.clear:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #FFFFFF;
+}
+
+/* Inspector Action Buttons for whitelist and delete */
 .inspector-action-btn.success {
   background: #059669;
   color: #FFFFFF;
@@ -10793,6 +11109,18 @@ input, select, textarea, button {
 
 .inspector-action-btn.danger:hover {
   background: #B91C1C;
+}
+
+.inspector-action-btn.delete-perm {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #FCA5A5;
+}
+
+.inspector-action-btn.delete-perm:hover {
+  background: #DC2626;
+  border-color: #EF4444;
+  color: #FFFFFF;
 }
 
 /* 5. Login Page Test Mode Banner */

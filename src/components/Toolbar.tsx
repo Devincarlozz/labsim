@@ -221,35 +221,33 @@ export function Toolbar({
 
         {/* Right Section: Undo/Redo, Zoom, Panel Toggles, Admin & Profile */}
         <div className="header-right-cluster">
-          {/* Real-User Testing Mode Badge */}
-          {testMode.enabled && (
-            <div
-              className={`test-mode-header-badge ${isAdmin ? 'clickable' : ''}`}
-              onClick={() => isAdmin && setAdminModalOpen(true)}
-              title={isAdmin ? "Test Mode is ACTIVE — Click to manage authorized tester emails" : "Private Real-User Test Mode is Active"}
-            >
-              <span className="test-mode-pulse-beacon" />
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              <span className="test-mode-badge-label">TEST MODE</span>
-            </div>
-          )}
-
-          {/* Admin Dashboard Quick Access Button (Strictly restricted to authorized admin emails) */}
-          {isAdmin && (
+          {/* Admin Dashboard Quick Access Button with integrated Test Lock state */}
+          {isAdmin ? (
             <button
-              className="header-admin-btn admin-active"
+              className={`header-admin-btn admin-active ${testMode.enabled ? 'has-test-lock' : ''}`}
               onClick={() => setAdminModalOpen(true)}
-              title="Open Admin Center (Active Users & Projects)"
+              title={testMode.enabled ? "Open Admin Center (Test Lock is ACTIVE — click to manage testers)" : "Open Admin Center (Active Users & Projects)"}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               </svg>
               <span className="admin-btn-label">Admin</span>
-              <span className="admin-btn-live-dot" />
+              {testMode.enabled ? (
+                <span className="admin-test-tag" title="Test Mode is Active">🔒</span>
+              ) : (
+                <span className="admin-btn-live-dot" />
+              )}
             </button>
+          ) : (
+            testMode.enabled && (
+              <div
+                className="test-mode-header-badge compact"
+                title="Private Real-User Test Mode is Active"
+              >
+                <span className="test-mode-pulse-beacon" />
+                <span className="test-mode-badge-label">TEST</span>
+              </div>
+            )
           )}
 
           {/* Undo / Redo capsule */}

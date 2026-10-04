@@ -28,6 +28,8 @@ import {
   saveTestModeSettings,
   subscribeToTestModeSettings,
   isUserAuthorizedForTestMode,
+  deleteFirebaseUser,
+  createFirebaseUser,
 } from '../services/firebase';
 import { useStore } from '../store/CircuitStore';
 
@@ -56,6 +58,11 @@ interface AuthContextType {
   addTestModeEmail: (email: string) => Promise<void>;
   removeTestModeEmail: (email: string) => Promise<void>;
   isCurrentSessionAuthorized: boolean;
+  // User Management
+  deleteUser: (uid: string, email?: string) => Promise<boolean>;
+  createUser: (data: { displayName: string; email: string; role?: 'user' | 'admin'; allowInTestMode?: boolean }) => Promise<UserPresence>;
+  whitelistAllUsers: (users: UserPresence[]) => Promise<void>;
+  clearTestWhitelist: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -132,6 +139,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const updated: TestModeSettings = {
       ...testMode,
       allowedEmails: testMode.allowedEmails.filter((e) => e.toLowerCase() !== clean),
+      enabledBy: user?.email || 'admin',
+    };
+    setTestMode(updated);
+    await saveTestModeSettings(updated);
+  }, [testMode, user]);
+
+  const deleteUser = useCallback(async (uid: string, email?: string) => {
+    return await deleteFirebaseUser(uid, email);
+  }, []);
+
+  const createUser = useCallback(async (data: { displayName: string; email: string; role?: 'user' | 'admin'; allowInTestMode?: boolean }) => {
+    return await createFirebaseUser(data);
+  }, []);
+
+  const whitelistAllUsers = useCallback(async (usersToWhitelist: UserPresence[]) => {
+    const emailsToAdd = usersToWhitelist
+      .map((u) => u.email?.trim().toLowerCase())
+      .filter((em): em is string => Boolean(em));
+    const combined = Array.from(new Set([...testMode.allowedEmails, ...emailsToAdd]));
+    const updated: TestModeSettings = {
+      ...testMode,
+      allowedEmails: combined,
+      enabledBy: user?.email || 'admin',
+    };
+    setTestMode(updated);
+    await saveTestModeSettings(updated);
+  }, [testMode, user]);
+
+  const clearTestWhitelist = useCallback(async () => {
+    const updated: TestModeSettings = {
+      ...testMode,
+      allowedEmails: [],
       enabledBy: user?.email || 'admin',
     };
     setTestMode(updated);
@@ -335,6 +374,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addTestModeEmail,
         removeTestModeEmail,
         isCurrentSessionAuthorized,
+        deleteUser,
+        createUser,
+        whitelistAllUsers,
+        clearTestWhitelist,
       }}
     >
       {children}

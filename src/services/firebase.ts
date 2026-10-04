@@ -16,6 +16,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  deleteDoc,
   collection,
   onSnapshot,
   query,
@@ -28,6 +29,7 @@ import { AuthUser, UserPresence, TestModeSettings } from '../types/auth';
 const STORAGE_KEY_CONFIG = 'circuitlab_firebase_config';
 const STORAGE_KEY_LOCAL_USERS = 'circuitlab_active_users_cache';
 const STORAGE_KEY_SIMULATED_USER = 'circuitlab_simulated_user';
+const STORAGE_KEY_DELETED_USERS = 'circuitlab_deleted_uids';
 
 export interface FirebaseCustomConfig {
   apiKey: string;
@@ -907,8 +909,15 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = cachedRemoteUser
     }
   }
 
+  // Filter out any accounts deleted by the admin
+  const deletedUids = getDeletedUserUids();
+  const list = Array.from(userMap.values()).filter((u) => {
+    if (deletedUids.includes(u.uid)) return false;
+    if (u.email && deletedUids.includes(u.email.toLowerCase())) return false;
+    return true;
+  });
+
   // Sort: Online first, then Admins, then by lastSeen descending
-  const list = Array.from(userMap.values());
   list.sort((a, b) => {
     if (a.status === 'online' && b.status !== 'online') return -1;
     if (b.status === 'online' && a.status !== 'online') return 1;
@@ -918,6 +927,158 @@ export function getAllMergedUsers(remoteUsers: UserPresence[] = cachedRemoteUser
   });
 
   return list;
+}
+
+export function getDeletedUserUids(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DELETED_USERS);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Admin: Delete/Remove user entirely from Firebase Firestore and local registries
+export async function deleteFirebaseUser(uid: string, email?: string): Promise<boolean> {
+  const cleanEmail = email?.trim().toLowerCase();
+
+  // 1. Record in deleted list
+  const deleted = getDeletedUserUids();
+  if (!deleted.includes(uid)) deleted.push(uid);
+  if (cleanEmail && !deleted.includes(cleanEmail)) deleted.push(cleanEmail);
+  try {
+    localStorage.setItem(STORAGE_KEY_DELETED_USERS, JSON.stringify(deleted));
+  } catch {}
+
+  // 2. Delete document from Firestore collection('users')
+  if (db && isConfigured) {
+    try {
+      await deleteDoc(doc(db, 'users', uid));
+    } catch (err) {
+      console.warn('Failed to delete doc from Firestore:', err);
+    }
+  }
+
+  // 3. Remove from cachedRemoteUsers
+  cachedRemoteUsers = cachedRemoteUsers.filter(
+    (u) => u.uid !== uid && (!cleanEmail || u.email?.toLowerCase() !== cleanEmail)
+  );
+
+  // 4. Remove from STORAGE_KEY_LOCAL_USERS
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
+    if (raw) {
+      const stored: UserPresence[] = JSON.parse(raw);
+      const filtered = stored.filter(
+        (u) => u.uid !== uid && (!cleanEmail || u.email?.toLowerCase() !== cleanEmail)
+      );
+      localStorage.setItem(STORAGE_KEY_LOCAL_USERS, JSON.stringify(filtered));
+    }
+  } catch {}
+
+  // 5. Remove from local registered accounts
+  try {
+    const regRaw = localStorage.getItem('circuitlab_registered_users');
+    if (regRaw) {
+      const regs = JSON.parse(regRaw);
+      const filteredRegs = regs.filter(
+        (u: any) => u.uid !== uid && (!cleanEmail || u.email?.toLowerCase() !== cleanEmail)
+      );
+      localStorage.setItem('circuitlab_registered_users', JSON.stringify(filteredRegs));
+    }
+  } catch {}
+
+  // 6. Remove from test mode allowed whitelist if present
+  if (cleanEmail) {
+    try {
+      const curTestMode = getStoredTestModeSettings();
+      const updated = curTestMode.allowedEmails.filter((em) => em.toLowerCase() !== cleanEmail);
+      if (updated.length !== curTestMode.allowedEmails.length) {
+        await saveTestModeSettings({ ...curTestMode, allowedEmails: updated });
+      }
+    } catch {}
+  }
+
+  window.dispatchEvent(new CustomEvent('circuitlab-users-updated'));
+  return true;
+}
+
+// Admin: Add/Register new user into Firebase Firestore
+export async function createFirebaseUser(data: {
+  displayName: string;
+  email: string;
+  role?: 'user' | 'admin';
+  allowInTestMode?: boolean;
+}): Promise<UserPresence> {
+  const cleanEmail = data.email.trim().toLowerCase();
+  const uid = `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const newUser: UserPresence = {
+    uid,
+    displayName: data.displayName.trim() || cleanEmail.split('@')[0],
+    email: cleanEmail,
+    photoURL: null,
+    role: data.role || (checkIsAdmin(cleanEmail) ? 'admin' : 'user'),
+    status: 'offline',
+    lastSeen: Date.now(),
+    createdAt: Date.now(),
+    authProvider: 'email',
+    browserInfo: 'Admin Manual Registration',
+  };
+
+  // Remove from deleted list if was previously deleted
+  try {
+    const deleted = getDeletedUserUids().filter(
+      (id) => id !== uid && id !== cleanEmail
+    );
+    localStorage.setItem(STORAGE_KEY_DELETED_USERS, JSON.stringify(deleted));
+  } catch {}
+
+  // Save to Firestore
+  if (db && isConfigured) {
+    try {
+      await setDoc(doc(db, 'users', uid), {
+        uid,
+        displayName: newUser.displayName,
+        email: newUser.email,
+        role: newUser.role,
+        createdAt: newUser.createdAt,
+        lastSeen: newUser.lastSeen,
+        authProvider: newUser.authProvider,
+        browserInfo: newUser.browserInfo,
+      });
+    } catch (e) {
+      console.warn('Failed to save new user to Firestore:', e);
+    }
+  }
+
+  // Update cached lists
+  cachedRemoteUsers = [
+    ...cachedRemoteUsers.filter((u) => u.uid !== uid && u.email?.toLowerCase() !== cleanEmail),
+    newUser,
+  ];
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
+    const list: UserPresence[] = raw ? JSON.parse(raw) : [];
+    list.push(newUser);
+    localStorage.setItem(STORAGE_KEY_LOCAL_USERS, JSON.stringify(list));
+  } catch {}
+
+  // Optionally whitelist for test mode right away
+  if (data.allowInTestMode) {
+    try {
+      const curTestMode = getStoredTestModeSettings();
+      if (!curTestMode.allowedEmails.some((e) => e.toLowerCase() === cleanEmail)) {
+        await saveTestModeSettings({
+          ...curTestMode,
+          allowedEmails: [...curTestMode.allowedEmails, cleanEmail],
+        });
+      }
+    } catch {}
+  }
+
+  window.dispatchEvent(new CustomEvent('circuitlab-users-updated'));
+  return newUser;
 }
 
 export function getLocalActiveUsers(): UserPresence[] {
@@ -1115,8 +1276,7 @@ export function subscribeToTestModeSettings(
 export function isUserAuthorizedForTestMode(
   email: string | null | undefined,
   role: string | undefined,
-  testMode: TestModeSettings,
-  activeUsers?: UserPresence[]
+  testMode: TestModeSettings
 ): boolean {
   // If test mode is not enabled, anyone can access
   if (!testMode.enabled) return true;
@@ -1129,30 +1289,14 @@ export function isUserAuthorizedForTestMode(
     return true;
   }
 
-  // 2. Whitelisted emails explicitly added by Admin
+  // 2. Whitelisted tester emails explicitly permitted by Admin
+  // If an email is removed by Admin from allowedEmails, they are immediately locked out!
   if (testMode.allowedEmails && testMode.allowedEmails.some((e) => e.trim().toLowerCase() === cleanEmail)) {
     return true;
   }
 
-  // 3. Current registered users (all users in Firebase database and active users list)
-  if (FIREBASE_DATABASE_ACCOUNTS.some((acc) => acc.email?.toLowerCase() === cleanEmail)) {
-    return true;
-  }
-
-  if (activeUsers && activeUsers.some((u) => u.email?.toLowerCase() === cleanEmail)) {
-    return true;
-  }
-
-  if (cachedRemoteUsers && cachedRemoteUsers.some((u) => u.email?.toLowerCase() === cleanEmail)) {
-    return true;
-  }
-
-  // Also check local registered accounts
-  const localRegs = getRegisteredUsers();
-  if (localRegs.some((u) => u.email.toLowerCase() === cleanEmail)) {
-    return true;
-  }
-
+  // Non-whitelisted accounts are locked out while Test Mode is active
   return false;
 }
+
 
