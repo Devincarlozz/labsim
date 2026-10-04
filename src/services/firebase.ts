@@ -635,6 +635,18 @@ export function subscribeToActiveUsers(
 // Real authenticated accounts in the Firebase project
 export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
   {
+    uid: 'HrwYlg6k8wWHimkK16YaL4Xvalh2',
+    displayName: 'Anegha Manoj',
+    email: 'aneghamanoj@gmail.com',
+    photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocKsnFK7ylFkK687KnOYCYuqD45VAhrhPRizCIfhXELVHJbmo2NR=s96-c',
+    role: 'user',
+    status: 'offline',
+    authProvider: 'google',
+    createdAt: 1791097794696,
+    lastSeen: 1791097794697,
+    browserInfo: 'Chrome • Google Account',
+  },
+  {
     uid: 'eZ1bVK6Hh7cmc3H70MgKZzDn17C2',
     displayName: 'Sirin Devassia',
     email: 'sirindevassia@gmail.com',
@@ -669,6 +681,30 @@ export const FIREBASE_DATABASE_ACCOUNTS: UserPresence[] = [
     createdAt: 1790963640546,
     lastSeen: 1790963640547,
     browserInfo: 'Chrome • Google Account',
+  },
+  {
+    uid: 'UpyD7wQXTJRZX8LifWZeL78NguK2',
+    displayName: 'bhagath',
+    email: 'bhagath@example.com',
+    photoURL: null,
+    role: 'user',
+    status: 'offline',
+    authProvider: 'email',
+    createdAt: 1791030622464,
+    lastSeen: 1791030622464,
+    browserInfo: 'Registered Account (Email/Password)',
+  },
+  {
+    uid: 'zIxbfvNEETNIkNLT7LF54sLUqRQ2',
+    displayName: 'test',
+    email: 'test@example.com',
+    photoURL: null,
+    role: 'user',
+    status: 'offline',
+    authProvider: 'email',
+    createdAt: 1791033415812,
+    lastSeen: 1791033415812,
+    browserInfo: 'Registered Account (Email/Password)',
   },
   {
     uid: 'zVwCFSGoSASnYN2AAVFd09hNdRm2',
@@ -887,7 +923,30 @@ export async function deleteFirestoreAdminMessage(id: string): Promise<void> {
 // Watch auth state changes from Firebase
 export function onFirebaseAuthState(callback: (user: FirebaseUser | null) => void): () => void {
   if (auth && isConfigured) {
-    return onAuthStateChanged(auth, callback);
+    return onAuthStateChanged(auth, (user) => {
+      if (user && db) {
+        try {
+          const isAdmin = checkIsAdmin(user.email);
+          const isGoogle = user.providerData && user.providerData.some((p) => p.providerId === 'google.com');
+          setDoc(
+            doc(db, 'users', user.uid),
+            {
+              uid: user.uid,
+              displayName: user.displayName || (user.email ? user.email.split('@')[0] : 'User'),
+              email: user.email,
+              photoURL: user.photoURL || null,
+              role: isAdmin ? 'admin' : 'user',
+              status: 'online',
+              lastSeen: Date.now(),
+              authProvider: isGoogle ? 'google' : 'email',
+              browserInfo: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Browser',
+            },
+            { merge: true }
+          ).catch(() => {});
+        } catch {}
+      }
+      callback(user);
+    });
   }
   return () => {};
 }

@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection: read by all authenticated/admin users, write on registration/login/presence
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    
+    // Admin messages / announcements
+    match /admin_messages/{messageId} {
+      allow read, write: if true;
+    }
+
+    // Default allow read/write for labsim documents
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

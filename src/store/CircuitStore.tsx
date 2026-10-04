@@ -344,134 +344,13 @@ function createInitialState(): Project {
   const components = new Map<ComponentId, CircuitComponent>();
   const wires = new Map<WireId, Wire>();
 
-  // 1. 74HC08 (Horizontal black DIP chip straddling center channel from col 18 to 24)
-  const ic08Id = 'ic-74hc08';
-  const ic08Pins = createICPins('74HC08');
-  const ic08Pos = { x: 298, y: 142 };
-  components.set(ic08Id, {
-    id: ic08Id,
-    type: 'ic',
-    icType: '74HC08',
-    label: 'U1',
-    position: ic08Pos,
-    rotation: 0,
-    pins: ic08Pins,
-    selected: true,
-  });
-
-  // 2. 74HC04 (Horizontal black DIP chip straddling center channel from col 36 to 42)
-  const ic04Id = 'ic-74hc04';
-  const ic04Pins = createICPins('74HC04');
-  const ic04Pos = { x: 550, y: 142 };
-  components.set(ic04Id, {
-    id: ic04Id,
-    type: 'ic',
-    icType: '74HC04',
-    label: 'U2',
-    position: ic04Pos,
-    rotation: 0,
-    pins: ic04Pins,
-    selected: false,
-  });
-
-  // 3. Resistor (perfectly on Row B holes: Pin 1 at col 11, Pin 2 at col 15)
-  const resId = 'res-1';
-  const resPins = createResistorPins();
-  const resPos = { x: 200, y: 100 };
-  components.set(resId, {
-    id: resId,
-    type: 'resistor',
-    label: 'R1',
-    position: resPos,
-    rotation: 0,
-    resistance: 1,
-    unit: 'kΩ',
-    tolerance: '5%',
-    pins: resPins,
-    selected: false,
-  } as ResistorComponent);
-
-  // 4. Capacitor (blue dipped bulbous ceramic capacitor on Row C, columns 28 and 29)
-  const capId = 'cap-1';
-  const capPins = createCapacitorPins();
-  const capPos = { x: 438, y: 114 };
-  components.set(capId, {
-    id: capId,
-    type: 'capacitor',
-    label: 'C1',
-    position: capPos,
-    rotation: 0,
-    capacitance: 100,
-    unit: 'nF',
-    pins: capPins,
-    selected: false,
-  });
-
-  // 5. DAC Header (black header on column 54, rows C, D, E)
-  const dacId = 'dac-1';
-  const dacPins = createDACPins();
-  const dacPos = { x: 802, y: 114 };
-  components.set(dacId, {
-    id: dacId,
-    type: 'dac',
-    label: 'DAC1',
-    position: dacPos,
-    rotation: 0,
-    pins: dacPins,
-    selected: false,
-  });
-
-  // Connect all initial components to breadboard contacts
-  let currentContacts = bb.contacts;
-  for (const [id, comp] of components) {
-    const { snappedComp, newContacts } = snapComponentToBreadboard(
-      comp,
-      { ...bb, contacts: currentContacts },
-      15
-    );
-    components.set(id, snappedComp);
-    currentContacts = newContacts;
-  }
-  bb.contacts = currentContacts;
-
-  // Helper to add wire snapping to breadboard contacts
-  const addWire = (id: string, startContactId: ContactId, endContactId: ContactId, color: string) => {
-    const s = bb.contacts.get(startContactId);
-    const e = bb.contacts.get(endContactId);
-    if (!s || !e) return;
-    s.occupied = true;
-    e.occupied = true;
-    wires.set(id, {
-      id,
-      startContactId,
-      endContactId,
-      color,
-      points: [s.position, e.position],
-      selected: false,
-    });
-  };
-
-  // Pre-populated wires matching Section 4.2:
-  // - Red wire from positive rail toward DAC Vcc pin
-  addWire('wire-red-vcc', 'r-0-45', 't-c-54', '#EF4444');
-  // - Yellow wire toward DAC Vo
-  addWire('wire-yellow-vo', 't-d-54', 't-d-44', '#EAB308');
-  // - Dark charcoal wire toward DAC Gnd
-  addWire('wire-charcoal-gnd', 't-e-54', 'r-1-45', '#334155');
-  // - Blue wire connecting lower board region
-  addWire('wire-blue-lower', 't-h-20', 't-h-34', '#1677E8');
-  // - Green wire crossing center toward right
-  addWire('wire-green-center', 't-b-22', 't-g-38', '#10B981');
-  // - Black/dark blue signal wires around IC pins
-  addWire('wire-signal-1', 't-a-20', 't-c-20', '#1E293B');
-  addWire('wire-signal-2', 't-f-21', 't-i-21', '#0F172A');
-
   return {
     version: 1,
-    name: 'My Project',
+    name: 'Workspace 1',
     components,
     wires,
     breadboard: bb,
+    notes: '',
     instruments: {
       oscillator: {
         frequency: 1000,
@@ -505,7 +384,7 @@ function createInitialState(): Project {
     editor: {
       mode: 'select',
       placingComponent: null,
-      selectedComponentId: ic08Id,
+      selectedComponentId: null,
       selectedWireId: null,
       wireStart: null,
       viewTransform: { offsetX: 0, offsetY: 0, scale: 1 },
@@ -513,8 +392,8 @@ function createInitialState(): Project {
       snapToGrid: true,
     },
     simulation: {
-      status: 'paused',
-      tick: 1,
+      status: 'idle',
+      tick: 0,
       errors: [],
       warnings: [],
       nodes: deriveElectricalNodes(bb, wires, components),
@@ -1695,43 +1574,50 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     const defaultState = createInitialState();
-    defaultState.notes = '# Project Notes\n\nCircuit bench test setup with 74HC08 AND gate, 74HC04 Hex Inverter, and RC filter network.';
     const saved = initialSaved.current;
     if (saved && saved.workspaces && saved.workspaces.length > 0) {
       const activeTab = saved.workspaces.find(w => w.id === saved.activeWorkspaceId) || saved.workspaces[0];
       if (activeTab && activeTab.project) {
-        const bb = createBreadboardModel();
-        let currentContacts = bb.contacts;
-        const comps = new Map<ComponentId, CircuitComponent>();
-        for (const comp of activeTab.project.components) {
-          const { snappedComp, newContacts } = snapComponentToBreadboard(
-            comp,
-            { ...bb, contacts: currentContacts }
-          );
-          comps.set(comp.id, snappedComp);
-          currentContacts = newContacts;
+        const compsList = activeTab.project.components || [];
+        const isLegacyDemo =
+          (compsList.some((c: any) => c.id === 'ic-74hc08' || c.icType === '74HC08') &&
+           compsList.some((c: any) => c.id === 'ic-74hc04' || c.icType === '74HC04')) ||
+          (typeof activeTab.notes === 'string' && activeTab.notes.includes('Circuit bench test setup with 74HC08'));
+
+        if (!isLegacyDemo) {
+          const bb = createBreadboardModel();
+          let currentContacts = bb.contacts;
+          const comps = new Map<ComponentId, CircuitComponent>();
+          for (const comp of compsList) {
+            const { snappedComp, newContacts } = snapComponentToBreadboard(
+              comp,
+              { ...bb, contacts: currentContacts }
+            );
+            comps.set(comp.id, snappedComp);
+            currentContacts = newContacts;
+          }
+          bb.contacts = currentContacts;
+          const wires = new Map<WireId, Wire>();
+          for (const wire of activeTab.project.wires) {
+            wires.set(wire.id, wire);
+            const s = currentContacts.get(wire.startContactId);
+            const e = currentContacts.get(wire.endContactId);
+            if (s) s.occupied = true;
+            if (e) e.occupied = true;
+          }
+          const nodes = deriveElectricalNodes(bb, wires, comps);
+          propagateLogic(comps, nodes);
+          return {
+            ...defaultState,
+            name: activeTab.name || defaultState.name,
+            components: comps,
+            wires,
+            breadboard: bb,
+            instruments: activeTab.project.instruments || defaultState.instruments,
+            notes: activeTab.notes ?? defaultState.notes,
+            simulation: { ...defaultState.simulation, nodes },
+          };
         }
-        bb.contacts = currentContacts;
-        const wires = new Map<WireId, Wire>();
-        for (const wire of activeTab.project.wires) {
-          wires.set(wire.id, wire);
-          const s = currentContacts.get(wire.startContactId);
-          const e = currentContacts.get(wire.endContactId);
-          if (s) s.occupied = true;
-          if (e) e.occupied = true;
-        }
-        const nodes = deriveElectricalNodes(bb, wires, comps);
-        propagateLogic(comps, nodes);
-        return {
-          ...defaultState,
-          name: activeTab.name || defaultState.name,
-          components: comps,
-          wires,
-          breadboard: bb,
-          instruments: activeTab.project.instruments || defaultState.instruments,
-          notes: activeTab.notes ?? defaultState.notes,
-          simulation: { ...defaultState.simulation, nodes },
-        };
       }
     }
     return defaultState;
@@ -1741,7 +1627,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceTab[]>(() => {
     const saved = initialSaved.current;
     if (saved && saved.workspaces && saved.workspaces.length > 0) {
-      return saved.workspaces;
+      return saved.workspaces.map(w => {
+        const compsList = w.project?.components || [];
+        const isDemo =
+          (compsList.some((c: any) => c.id === 'ic-74hc08' || c.icType === '74HC08') &&
+           compsList.some((c: any) => c.id === 'ic-74hc04' || c.icType === '74HC04')) ||
+          (typeof w.notes === 'string' && w.notes.includes('Circuit bench test setup with 74HC08'));
+        if (isDemo) {
+          return {
+            ...w,
+            project: serializeProject(createInitialState()),
+            notes: '',
+          };
+        }
+        return w;
+      });
     }
     const initialProject = serializeProject(createInitialState());
     return [
@@ -1749,7 +1649,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         id: 'workspace-1',
         name: 'Workspace 1',
         project: initialProject,
-        notes: '# Project Notes\n\nCircuit bench test setup with 74HC08 AND gate, 74HC04 Hex Inverter, and RC filter network.',
+        notes: '',
         createdAt: Date.now(),
       },
     ];

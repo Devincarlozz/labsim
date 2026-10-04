@@ -120,6 +120,30 @@ export function loadWebcontent(): SavedWebcontent | null {
     if (json) {
       const parsed = JSON.parse(json) as SavedWebcontent;
       if (parsed && Array.isArray(parsed.workspaces) && parsed.workspaces.length > 0) {
+        let changed = false;
+        parsed.workspaces = parsed.workspaces.map(w => {
+          const comps = w.project?.components || [];
+          const isDemo =
+            (comps.some((c: any) => c.id === 'ic-74hc08' || c.icType === '74HC08') &&
+             comps.some((c: any) => c.id === 'ic-74hc04' || c.icType === '74HC04')) ||
+            (typeof w.notes === 'string' && w.notes.includes('Circuit bench test setup with 74HC08'));
+          if (isDemo) {
+            changed = true;
+            return {
+              ...w,
+              project: {
+                ...w.project,
+                components: [],
+                wires: [],
+              },
+              notes: '',
+            };
+          }
+          return w;
+        });
+        if (changed) {
+          saveWebcontent(parsed);
+        }
         return parsed;
       }
     }

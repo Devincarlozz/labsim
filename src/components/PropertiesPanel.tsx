@@ -332,7 +332,7 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
           <div className="notes-container">
             <textarea
               className="notes-textarea"
-              value={state.notes ?? '# Project Notes\n\nCircuit bench test setup with 74HC08 AND gate, 74HC04 Hex Inverter, and RC filter network.'}
+              value={state.notes ?? ''}
               onChange={(e) => dispatch({ type: 'SET_NOTES', notes: e.target.value })}
               placeholder="Add project notes, circuit equations, or pin connections..."
               rows={16}
