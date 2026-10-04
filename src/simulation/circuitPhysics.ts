@@ -989,6 +989,51 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     });
   }
 
+  // ── Closed Loop & Return Path Verification ──────────────────────────────
+  // Identify all nets with valid ground / return paths (AGND, DGND, negative rail, 0V logic sinks)
+  const groundConnectedNets = new Set<string>();
+  for (const [netId, src] of netSources.entries()) {
+    if (src.isGround || (src.voltage <= 0.25 && !src.isAc)) {
+      groundConnectedNets.add(netId);
+    }
+  }
+  // Propagate ground path through all resistor networks
+  let addedGround = true;
+  while (addedGround) {
+    addedGround = false;
+    for (const edge of resistorEdges) {
+      if (groundConnectedNets.has(edge.net1) && !groundConnectedNets.has(edge.net2)) {
+        groundConnectedNets.add(edge.net2);
+        addedGround = true;
+      } else if (groundConnectedNets.has(edge.net2) && !groundConnectedNets.has(edge.net1)) {
+        groundConnectedNets.add(edge.net1);
+        addedGround = true;
+      }
+    }
+  }
+
+  // Identify all nets with valid positive supply paths (VCC, VPS+, AO, logic HIGH outputs)
+  const powerConnectedNets = new Set<string>();
+  for (const [netId, src] of netSources.entries()) {
+    if (!src.isGround && (src.voltage >= 1.2 || (src.isAc && (src.amplitude + src.dcOffset) >= 1.2))) {
+      powerConnectedNets.add(netId);
+    }
+  }
+  // Propagate power path through all resistor networks
+  let addedPower = true;
+  while (addedPower) {
+    addedPower = false;
+    for (const edge of resistorEdges) {
+      if (powerConnectedNets.has(edge.net1) && !powerConnectedNets.has(edge.net2)) {
+        powerConnectedNets.add(edge.net2);
+        addedPower = true;
+      } else if (powerConnectedNets.has(edge.net2) && !powerConnectedNets.has(edge.net1)) {
+        powerConnectedNets.add(edge.net1);
+        addedPower = true;
+      }
+    }
+  }
+
   // 7. Solve LEDs (Diodes: Forward Bias, Conduction Current, Intensity & Overcurrent)
   const ledPhysicsMap = new Map<string, LEDPhysics>();
 
@@ -1006,18 +1051,26 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     const vAnode = anodeNet ? (netVoltages.get(anodeNet) ?? 0) : 0;
     const vCathode = cathodeNet ? (netVoltages.get(cathodeNet) ?? 0) : 0;
 
+    const hasAnodePower = Boolean(anodeNet && powerConnectedNets.has(anodeNet));
+    const hasCathodeGround = Boolean(cathodeNet && groundConnectedNets.has(cathodeNet));
+    const hasAnodeGround = Boolean(anodeNet && groundConnectedNets.has(anodeNet));
+    const hasCathodePower = Boolean(cathodeNet && powerConnectedNets.has(cathodeNet));
+
+    const isClosedCircuitForward = hasAnodePower && hasCathodeGround;
+    const isClosedCircuitReverse = hasAnodeGround && hasCathodePower;
+
     const vf =
       led.forwardVoltage ||
       (led.color === 'red' ? 1.8 :
        led.color === 'green' ? 2.1 :
        led.color === 'blue' ? 3.2 :
        led.color === 'white' ? 3.3 :
-       led.color === 'purple' ? 3.4 :
+       (led.color === 'purple' || (led.color as string) === 'violet') ? 3.4 :
        led.color === 'yellow' ? 2.0 : 2.0);
 
     const vDiff = vAnode - vCathode;
-    const isForwardBiased = vDiff >= Math.min(vf * 0.7, 1.0);
-    const isReverseBiased = vDiff < -0.3;
+    const isForwardBiased = isClosedCircuitForward && (vDiff >= Math.min(vf * 0.7, 1.0));
+    const isReverseBiased = isClosedCircuitReverse || (hasCathodePower && !hasAnodePower && vDiff < -0.3);
 
     // Find any series resistor in the loop
     let rSeries = 15; // LED intrinsic dynamic resistance ~15 Ohms
@@ -1028,15 +1081,15 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     }
 
     let iAmps = 0;
-    if (isForwardBiased) {
+    if (isForwardBiased && isDaqOn) {
       const drop = Math.min(vf, Math.max(0.5, vDiff * 0.85));
       iAmps = Math.max(0.001, (vDiff - drop) / rSeries);
     }
 
     const iMilliAmps = iAmps * 1000;
-    const isCircuitIlluminated = isDaqOn && isForwardBiased && (iMilliAmps >= 0.05 || vDiff >= 0.9);
+    const isCircuitIlluminated = isDaqOn && isForwardBiased && (iMilliAmps >= 0.05);
     const intensity = isCircuitIlluminated ? Math.min(1.0, Math.max(0.65, iMilliAmps / 15.0)) : 0;
-    const isOvercurrent = iMilliAmps > (led.maxCurrent ? led.maxCurrent * 1.5 : 30.0); // Burn out risk
+    const isOvercurrent = isCircuitIlluminated && (iMilliAmps > (led.maxCurrent ? led.maxCurrent * 1.5 : 30.0)); // Burn out risk
 
     const testMode = Boolean(led.testGlow);
     const isIlluminated = isCircuitIlluminated || (testMode && isDaqOn);
@@ -1044,7 +1097,13 @@ export function solveCircuitPhysics(state: Project, time: number): CircuitPhysic
     const effectiveIntensity = testMode && intensity < 0.2 ? 1.0 : intensity;
 
     let statusText = 'OFF (0.0 mA)';
-    if (isOvercurrent) {
+    if (!hasCathodeGround && hasAnodePower) {
+      statusText = 'Open Circuit (Cathode not connected to GND)';
+    } else if (!hasAnodePower && hasCathodeGround) {
+      statusText = 'Open Circuit (Anode not connected to VCC)';
+    } else if (!hasAnodePower && !hasCathodeGround) {
+      statusText = 'Open Circuit (Disconnected)';
+    } else if (isOvercurrent) {
       statusText = `⚠️ OVERCURRENT (${iMilliAmps.toFixed(1)} mA) - Needs Series Resistor!`;
     } else if (isCircuitIlluminated) {
       statusText = `Conducting & Glowing (${iMilliAmps.toFixed(1)} mA, Vf=${vf.toFixed(2)}V)`;

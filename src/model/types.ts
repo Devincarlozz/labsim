@@ -265,7 +265,7 @@ export interface DACComponent extends ComponentBase {
   // DAC has exactly 3 pins: Vcc, Vo, Gnd
 }
 
-export type LEDColor = 'red' | 'green' | 'blue' | 'yellow' | 'orange' | 'white' | 'purple';
+export type LEDColor = 'red' | 'green' | 'blue' | 'yellow' | 'orange' | 'white' | 'purple' | 'violet';
 
 export interface LEDComponent extends ComponentBase {
   type: 'led';

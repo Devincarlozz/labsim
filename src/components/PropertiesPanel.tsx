@@ -182,7 +182,7 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
      currentLEDColor === 'green' ? 2.1 :
      currentLEDColor === 'blue' ? 3.2 :
      currentLEDColor === 'white' ? 3.3 :
-     currentLEDColor === 'purple' ? 3.4 : 2.0);
+     (currentLEDColor === 'purple' || (currentLEDColor as string) === 'violet') ? 3.4 : 2.0);
   const currentLEDTestGlow = Boolean(ledComp?.testGlow);
   const currentLEDMaxCurrent = ledComp?.maxCurrent ?? 20;
 
@@ -825,15 +825,16 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
                 <div className="prop-field">
                   <label className="prop-field-label">Diode Color Selection</label>
                   <div className="led-color-swatches-grid">
-                    {(['red', 'green', 'blue', 'yellow', 'orange', 'white', 'purple'] as LEDColor[]).map((c) => {
-                      const colorRgbMap: Record<LEDColor, { mid: string; defaultVf: number }> = {
-                        red:    { mid: '#EF4444', defaultVf: 1.8 },
-                        green:  { mid: '#22C55E', defaultVf: 2.1 },
-                        blue:   { mid: '#3B82F6', defaultVf: 3.2 },
-                        yellow: { mid: '#EAB308', defaultVf: 2.0 },
-                        orange: { mid: '#F97316', defaultVf: 2.0 },
-                        white:  { mid: '#E2E8F0', defaultVf: 3.3 },
-                        purple: { mid: '#C084FC', defaultVf: 3.4 },
+                    {(['red', 'green', 'blue', 'yellow', 'orange', 'white', 'purple', 'violet'] as LEDColor[]).map((c) => {
+                      const colorRgbMap: Record<LEDColor, { mid: string; defaultVf: number; label: string }> = {
+                        red:    { mid: '#EF4444', defaultVf: 1.8, label: 'Red' },
+                        green:  { mid: '#22C55E', defaultVf: 2.1, label: 'Green' },
+                        blue:   { mid: '#3B82F6', defaultVf: 3.2, label: 'Blue' },
+                        yellow: { mid: '#FACC15', defaultVf: 2.0, label: 'Yellow' },
+                        orange: { mid: '#F97316', defaultVf: 2.0, label: 'Orange' },
+                        white:  { mid: '#F8FAFC', defaultVf: 3.3, label: 'White' },
+                        purple: { mid: '#A855F7', defaultVf: 3.4, label: 'Purple' },
+                        violet: { mid: '#9333EA', defaultVf: 3.4, label: 'Violet' },
                       };
                       const theme = colorRgbMap[c] || colorRgbMap.red;
                       const isSelected = currentLEDColor === c;
@@ -848,10 +849,10 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
                               forwardVoltage: theme.defaultVf,
                             });
                           }}
-                          title={`${c.toUpperCase()} LED`}
+                          title={`${theme.label} LED`}
                         >
                           <span className="swatch-color-dot" style={{ backgroundColor: theme.mid }} />
-                          <span className="swatch-name">{c}</span>
+                          <span className="swatch-name">{theme.label}</span>
                         </button>
                       );
                     })}
@@ -868,7 +869,7 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
                       onChange={(e) => {
                         const color = e.target.value as LEDColor;
                         const defaultVfMap: Record<LEDColor, number> = {
-                          red: 1.8, green: 2.1, blue: 3.2, yellow: 2.0, orange: 2.0, white: 3.3, purple: 3.4
+                          red: 1.8, green: 2.1, blue: 3.2, yellow: 2.0, orange: 2.0, white: 3.3, purple: 3.4, violet: 3.4
                         };
                         handleLEDChange({ color, forwardVoltage: defaultVfMap[color] || 2.0 });
                       }}
@@ -880,6 +881,7 @@ export function PropertiesPanel({ onToggle }: PropertiesPanelProps) {
                       <option value="orange">Orange</option>
                       <option value="white">White</option>
                       <option value="purple">Purple</option>
+                      <option value="violet">Violet</option>
                     </select>
                     <svg className="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="6 9 12 15 18 9" />

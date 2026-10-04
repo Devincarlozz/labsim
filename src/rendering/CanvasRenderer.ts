@@ -964,16 +964,20 @@ export class CanvasRenderer {
       }, false);
     } else if (isLEDPreview) {
       let color: LEDColor = 'red';
-      if (placingComponent === 'led-green') color = 'green';
-      else if (placingComponent === 'led-blue') color = 'blue';
-      else if (placingComponent === 'led-yellow') color = 'yellow';
+      const compStr = placingComponent as string;
+      if (compStr === 'led-green') color = 'green';
+      else if (compStr === 'led-blue') color = 'blue';
+      else if (compStr === 'led-yellow') color = 'yellow';
+      else if (compStr === 'led-purple' || compStr === 'led-violet') color = 'violet';
+
+      const defaultVf = color === 'red' ? 1.8 : color === 'green' ? 2.1 : color === 'blue' ? 3.2 : color === 'violet' ? 3.4 : 2.0;
 
       this.drawLED(ctx, {
         id: 'preview',
         type: 'led',
         color,
         label: `${color.toUpperCase()} LED`,
-        forwardVoltage: color === 'red' ? 1.8 : color === 'green' ? 2.1 : color === 'blue' ? 3.2 : 2.0,
+        forwardVoltage: defaultVf,
         position: anchorPos,
         rotation: 0,
         pins: [],
@@ -1799,33 +1803,47 @@ export class CanvasRenderer {
     const cx = 7; // midpoint between pins (0 and 14)
     const domeCy = -18;
 
-    // Check physics result for real forward bias & conduction current
+    // Check physics result for real forward bias & closed-loop conduction current
     const ledPhys = physicsResult?.leds.get(led.id);
-    let isLit = isCircuitActive && (ledPhys ? ledPhys.isIlluminated : Boolean(led.illuminated));
-    const isOvercurrent = isCircuitActive && (ledPhys ? ledPhys.isOvercurrent : false);
+    let isLit = false;
+    let isOvercurrent = false;
 
-    // Also verify digital logic nodes when active
-    if (!isLit && isCircuitActive && nodes && led.pins && led.pins.length >= 2) {
-      const anodePin = led.pins[0];
-      const cathodePin = led.pins[1];
-      if (anodePin?.contactId && cathodePin?.contactId) {
-        let anodeHigh = false;
-        let cathodeLow = false;
-        for (const node of nodes.values()) {
-          if (node.contactIds.has(anodePin.contactId)) {
-            if (node.state === 1) anodeHigh = true;
+    if (isCircuitActive) {
+      if (ledPhys) {
+        // Authoritative physical circuit engine: requires closed path between VCC and GND
+        isLit = ledPhys.isIlluminated;
+        isOvercurrent = ledPhys.isOvercurrent;
+      } else if (Boolean(led.illuminated)) {
+        isLit = true;
+      } else if (nodes && led.pins && led.pins.length >= 2) {
+        // Fallback only when physicsResult is unavailable: verify cathode is grounded!
+        const anodePin = led.pins[0];
+        const cathodePin = led.pins[1];
+        if (anodePin?.contactId && cathodePin?.contactId) {
+          let anodeHigh = false;
+          let cathodeGrounded = false;
+          for (const node of nodes.values()) {
+            if (node.contactIds.has(anodePin.contactId) && node.state === 1) {
+              anodeHigh = true;
+            }
+            if (node.contactIds.has(cathodePin.contactId) && node.state === 0) {
+              // Ensure cathode node is actually wired to GND or return sink
+              const hasGndContact = Array.from(node.contactIds).some((c) =>
+                c === 'daq-agnd1' || c === 'daq-agnd2' || c === 'daq-dgnd' || c.startsWith('r-1-') || c.startsWith('r-3-')
+              );
+              if (hasGndContact) {
+                cathodeGrounded = true;
+              }
+            }
           }
-          if (node.contactIds.has(cathodePin.contactId)) {
-            if (node.state === 0) cathodeLow = true;
+          if (anodeHigh && cathodeGrounded) {
+            isLit = true;
           }
-        }
-        if (anodeHigh && cathodeLow) {
-          isLit = true;
         }
       }
     }
 
-    // Color definitions
+    // Color definitions with dedicated glow, spread, and ambient halo for each LED color
     const colorThemes: Record<LEDColor, {
       dark: string;
       mid: string;
@@ -1833,6 +1851,8 @@ export class CanvasRenderer {
       core: string;
       glow: string;
       glowMid: string;
+      spread: string;
+      ambient: string;
       leadframe: string;
     }> = {
       red: {
@@ -1840,8 +1860,10 @@ export class CanvasRenderer {
         mid: '#DC2626',
         bright: '#EF4444',
         core: '#FEE2E2',
-        glow: 'rgba(239, 68, 68, 0.85)',
-        glowMid: 'rgba(239, 68, 68, 0.4)',
+        glow: 'rgba(239, 68, 68, 0.95)',
+        glowMid: 'rgba(239, 68, 68, 0.6)',
+        spread: 'rgba(239, 68, 68, 0.35)',
+        ambient: 'rgba(239, 68, 68, 0.12)',
         leadframe: '#B91C1C',
       },
       green: {
@@ -1849,8 +1871,10 @@ export class CanvasRenderer {
         mid: '#16A34A',
         bright: '#22C55E',
         core: '#DCFCE7',
-        glow: 'rgba(34, 197, 94, 0.85)',
-        glowMid: 'rgba(34, 197, 94, 0.4)',
+        glow: 'rgba(34, 197, 94, 0.95)',
+        glowMid: 'rgba(34, 197, 94, 0.6)',
+        spread: 'rgba(34, 197, 94, 0.35)',
+        ambient: 'rgba(34, 197, 94, 0.12)',
         leadframe: '#15803D',
       },
       blue: {
@@ -1858,17 +1882,21 @@ export class CanvasRenderer {
         mid: '#2563EB',
         bright: '#3B82F6',
         core: '#DBEAFE',
-        glow: 'rgba(59, 130, 246, 0.85)',
-        glowMid: 'rgba(59, 130, 246, 0.4)',
+        glow: 'rgba(59, 130, 246, 0.95)',
+        glowMid: 'rgba(59, 130, 246, 0.6)',
+        spread: 'rgba(59, 130, 246, 0.35)',
+        ambient: 'rgba(59, 130, 246, 0.12)',
         leadframe: '#1D4ED8',
       },
       yellow: {
         dark: '#78350F',
         mid: '#D97706',
-        bright: '#EAB308',
+        bright: '#FACC15',
         core: '#FEF9C3',
-        glow: 'rgba(234, 179, 8, 0.85)',
-        glowMid: 'rgba(234, 179, 8, 0.4)',
+        glow: 'rgba(250, 204, 21, 0.95)',
+        glowMid: 'rgba(250, 204, 21, 0.6)',
+        spread: 'rgba(234, 179, 8, 0.35)',
+        ambient: 'rgba(234, 179, 8, 0.12)',
         leadframe: '#B45309',
       },
       orange: {
@@ -1876,8 +1904,10 @@ export class CanvasRenderer {
         mid: '#EA580C',
         bright: '#F97316',
         core: '#FFEDD5',
-        glow: 'rgba(249, 115, 22, 0.85)',
-        glowMid: 'rgba(249, 115, 22, 0.4)',
+        glow: 'rgba(249, 115, 22, 0.95)',
+        glowMid: 'rgba(249, 115, 22, 0.6)',
+        spread: 'rgba(249, 115, 22, 0.35)',
+        ambient: 'rgba(249, 115, 22, 0.12)',
         leadframe: '#C2410C',
       },
       white: {
@@ -1885,46 +1915,64 @@ export class CanvasRenderer {
         mid: '#94A3B8',
         bright: '#F8FAFC',
         core: '#FFFFFF',
-        glow: 'rgba(255, 255, 255, 0.95)',
-        glowMid: 'rgba(226, 232, 240, 0.5)',
+        glow: 'rgba(255, 255, 255, 0.98)',
+        glowMid: 'rgba(226, 232, 240, 0.65)',
+        spread: 'rgba(203, 213, 225, 0.35)',
+        ambient: 'rgba(148, 163, 184, 0.12)',
         leadframe: '#64748B',
       },
       purple: {
-        dark: '#581C87',
-        mid: '#9333EA',
-        bright: '#C084FC',
+        dark: '#4C1D95',
+        mid: '#7C3AED',
+        bright: '#A855F7',
         core: '#FAF5FF',
-        glow: 'rgba(192, 132, 252, 0.85)',
-        glowMid: 'rgba(192, 132, 252, 0.4)',
-        leadframe: '#7E22CE',
+        glow: 'rgba(168, 85, 247, 0.95)',
+        glowMid: 'rgba(147, 51, 234, 0.6)',
+        spread: 'rgba(139, 92, 246, 0.38)',
+        ambient: 'rgba(124, 58, 237, 0.14)',
+        leadframe: '#6D28D9',
+      },
+      violet: {
+        dark: '#4C1D95',
+        mid: '#7C3AED',
+        bright: '#A855F7',
+        core: '#FAF5FF',
+        glow: 'rgba(168, 85, 247, 0.95)',
+        glowMid: 'rgba(147, 51, 234, 0.6)',
+        spread: 'rgba(139, 92, 246, 0.38)',
+        ambient: 'rgba(124, 58, 237, 0.14)',
+        leadframe: '#6D28D9',
       },
     };
 
-    const theme = colorThemes[led.color] || colorThemes.red;
+    const ledColorKey = (led.color as string) === 'violet' ? 'violet' : led.color;
+    const theme = colorThemes[ledColorKey] || colorThemes.red;
 
-    // 1. Draw Radial Radiant Halo if Lit
+    // 1. Draw Radial Radiant Halo if Lit (using LED's dedicated spread color!)
     if (isLit) {
       ctx.save();
-      const haloRadius = isOvercurrent ? 48 : 38;
-      const haloGrad = ctx.createRadialGradient(cx, domeCy, 2, cx, domeCy, haloRadius);
-      haloGrad.addColorStop(0, theme.glow);
-      haloGrad.addColorStop(0.35, theme.glowMid);
-      haloGrad.addColorStop(0.7, theme.glowMid.replace(/[\d.]+\)$/, '0.12)'));
+      const haloRadius = isOvercurrent ? 46 : 38;
+      const haloGrad = ctx.createRadialGradient(cx, domeCy, 1, cx, domeCy, haloRadius);
+      haloGrad.addColorStop(0, '#FFFFFF'); // Hot emitter die
+      haloGrad.addColorStop(0.18, theme.glow); // Concentrated primary LED bloom
+      haloGrad.addColorStop(0.45, theme.glowMid); // Intermediate radiant dispersion
+      haloGrad.addColorStop(0.72, theme.spread); // Dedicated LED color spread (violet for violet, etc.)
+      haloGrad.addColorStop(0.92, theme.ambient); // Fading ambient halo
       haloGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.fillStyle = haloGrad;
       ctx.beginPath();
       ctx.arc(cx, domeCy, haloRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      // If overcurrent (>30mA), show outer red warning pulse halo
+      // If overcurrent (>30mA), show a distinct outer warning ring without overriding the LED's optical spread
       if (isOvercurrent) {
-        const warnGrad = ctx.createRadialGradient(cx, domeCy, 12, cx, domeCy, 52);
-        warnGrad.addColorStop(0, 'rgba(239, 68, 68, 0.7)');
-        warnGrad.addColorStop(1, 'rgba(239, 68, 68, 0)');
-        ctx.fillStyle = warnGrad;
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+        ctx.lineWidth = 1.4;
+        ctx.setLineDash([4, 3]);
         ctx.beginPath();
-        ctx.arc(cx, domeCy, 52, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(cx, domeCy, haloRadius + 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.restore();
     }

@@ -836,6 +836,7 @@ function createComponent(componentType: PlacingComponent, position: Point): Circ
         orange: 2.0,
         white: 3.3,
         purple: 3.4,
+        violet: 3.4,
       };
       const defaultVf = vfTable[color] ?? 2.0;
 
